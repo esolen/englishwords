@@ -63,6 +63,16 @@ async function ensureTables() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_user_stats_user_game ON user_statistics(user_id, game_type);
+
+    CREATE TABLE IF NOT EXISTS user_study_list (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      english VARCHAR(255) NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(user_id, english)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_study_list_uid ON user_study_list(user_id);
   `;
 
   await p.query(createQuery);

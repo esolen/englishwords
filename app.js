@@ -6,15 +6,52 @@
 // 1. WordStore - Tamamen Boş Başlayan ve Neon DB Destekli Kelime Deposu
 const WordStore = {
   words: [],
+  studyList: new Set(), // Kullanıcının seçtiği özel kelimeler (english lowercase)
+  useOnlyStudyList: false, // "Sadece Seçtiğim Kelimelerle Çalış" Filtresi
   DIFFICULT_THRESHOLD: 1,
 
   getWords() {
+    if (this.useOnlyStudyList) {
+      return (this.words || []).filter(w => this.studyList.has(w.en.toLowerCase()));
+    }
+    return this.words || [];
+  },
+
+  getAllWords() {
     return this.words || [];
   },
 
   setWords(newWords) {
     this.words = Array.isArray(newWords) ? newWords : [];
     this.notifyUpdate();
+  },
+
+  setStudyList(list) {
+    this.studyList = new Set((list || []).map(w => w.toLowerCase()));
+    this.notifyUpdate();
+  },
+
+  isInStudyList(wordEn) {
+    if (!wordEn) return false;
+    return this.studyList.has(wordEn.toLowerCase());
+  },
+
+  toggleStudyList(wordEn) {
+    if (!wordEn) return false;
+    const lower = wordEn.toLowerCase();
+    const isAdded = !this.studyList.has(lower);
+    if (isAdded) {
+      this.studyList.add(lower);
+    } else {
+      this.studyList.delete(lower);
+    }
+    this.notifyUpdate();
+
+    // Neon DB Asenkron Eşitleme
+    if (AuthStore && AuthStore.user && AuthStore.user.id) {
+      AuthStore.syncStudyListWord(lower, isAdded ? 'add' : 'remove');
+    }
+    return isAdded;
   },
 
   getDifficultWords() {
@@ -279,16 +316,21 @@ function showToast(message, type = 'info') {
 // 5. Üst Menü ve İstatistik Göstergelerini Güncelleme
 function updateHeaderBadges() {
   const words = WordStore.getWords();
+  const allWords = WordStore.getAllWords();
   const difficult = WordStore.getDifficultWords();
+  const studyListSize = WordStore.studyList ? WordStore.studyList.size : 0;
 
   const totalBadge = document.getElementById('total-words-badge');
-  if (totalBadge) totalBadge.textContent = words.length;
+  if (totalBadge) totalBadge.textContent = WordStore.useOnlyStudyList ? `${words.length} (Özel)` : allWords.length;
 
   const diffBadge = document.getElementById('difficult-count-badge');
   if (diffBadge) diffBadge.textContent = difficult.length;
 
   const diffCardBadge = document.getElementById('difficult-card-count');
   if (diffCardBadge) diffCardBadge.textContent = difficult.length;
+
+  const studyListBadge = document.getElementById('study-list-count-badge');
+  if (studyListBadge) studyListBadge.textContent = studyListSize;
 
   renderWordsTable();
 }
@@ -318,9 +360,15 @@ function renderWordsTable(filterText = '') {
 
   tbody.innerHTML = sliced.map(w => {
     const isDiff = (w.wrongCount || 0) >= WordStore.DIFFICULT_THRESHOLD;
+    const isStarred = WordStore.isInStudyList(w.en);
     return `
       <tr class="hover:bg-slate-800/50 transition">
-        <td class="p-2.5 font-semibold text-white flex items-center gap-1.5">
+        <td class="p-2.5 font-semibold text-white flex items-center gap-2">
+          <!-- Özel Çalışma Listesi Yıldız / Bookmark Butonu -->
+          <button onclick="toggleStudyListHandler('${w.en.replace(/'/g, "\\'")}')" class="p-1 transition ${isStarred ? 'text-amber-400' : 'text-slate-600 hover:text-amber-400'}" title="${isStarred ? 'Özel Listemden Çıkar' : 'Özel Listeme Ekle'}">
+            <i data-lucide="star" class="w-4 h-4 ${isStarred ? 'fill-amber-400' : ''}"></i>
+          </button>
+
           <button onclick="AudioService.speak('${w.en.replace(/'/g, "\\'")}')" class="text-slate-400 hover:text-brand-400" title="Dinle">
             <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
           </button>
@@ -343,6 +391,13 @@ function renderWordsTable(filterText = '') {
   }).join('') + (filtered.length > displayLimit ? `<tr><td colspan="5" class="p-2.5 text-center text-slate-400 text-[11px] bg-slate-900/80 italic font-mono">+${filtered.length - displayLimit} kelime daha mevcut. Arama yaparak spesifik kelimelere ulaşabilirsiniz.</td></tr>` : '');
 
   if (window.lucide) window.lucide.createIcons();
+}
+
+function toggleStudyListHandler(wordEn) {
+  const isAdded = WordStore.toggleStudyList(wordEn);
+  AudioService.playSfx('pop');
+  showToast(isAdded ? `"${wordEn}" özel çalışma listenize eklendi! ⭐` : `"${wordEn}" özel listenizden çıkarıldı.`, 'info');
+  updateHeaderBadges();
 }
 
 function deleteWordHandler(id) {
@@ -526,6 +581,31 @@ function setupModals() {
       closeGame();
     });
   }
+
+  // Özel Çalışma Havuzu Toggle Switch Dinleyicisi
+  const studyToggle = document.getElementById('custom-study-filter-toggle');
+  if (studyToggle) {
+    studyToggle.addEventListener('change', (e) => {
+      WordStore.useOnlyStudyList = e.target.checked;
+      const filteredCount = WordStore.getWords().length;
+      if (WordStore.useOnlyStudyList) {
+        showToast(`Özel Çalışma Havuzu Aktif! (${filteredCount} kelime)`, 'success');
+      } else {
+        showToast('Tüm kelime havuzuna dönüldü.', 'info');
+      }
+      updateHeaderBadges();
+    });
+  }
+
+  const studyListBadgeBtn = document.getElementById('nav-study-list-badge-btn');
+  if (studyListBadgeBtn) {
+    studyListBadgeBtn.addEventListener('click', () => {
+      if (studyToggle) {
+        studyToggle.checked = !studyToggle.checked;
+        studyToggle.dispatchEvent(new Event('change'));
+      }
+    });
+  }
 }
 
 // 8. Oyun Yöneticisi (Game Manager)
@@ -554,9 +634,26 @@ function launchGame(gameId) {
 
   const words = WordStore.getWords();
   if (words.length === 0) {
+    if (WordStore.useOnlyStudyList) {
+      showToast('Özel çalışma listenizde henüz kelime yok! Kelime tablosundan yıldız ikonuna basarak kelime ekleyin.', 'warning');
+      const dbModal = document.getElementById('word-db-modal');
+      if (dbModal) dbModal.classList.remove('hidden');
+      return;
+    }
     showToast('Henüz kelime eklemediniz, lütfen kelime ekleyin!', 'warning');
     const dbModal = document.getElementById('word-db-modal');
     if (dbModal) dbModal.classList.remove('hidden');
+    return;
+  }
+
+  // Oyun gereksinim kontrolleri
+  if (gameId === 'matching' && words.length < 6) {
+    showToast(`Bu modu oynamak için listenize en az 6 kelime eklemelisiniz! (Şu an: ${words.length})`, 'warning');
+    return;
+  }
+
+  if (['multiple-choice', 'fill-blanks', 'falling-words', 'word-defense'].includes(gameId) && words.length < 4) {
+    showToast(`Bu modu oynamak için listenize en az 4 kelime eklemelisiniz! (Şu an: ${words.length})`, 'warning');
     return;
   }
 
@@ -670,7 +767,12 @@ class FlashcardsGame {
         <div class="flashcard-wrapper ${this.isFlipped ? 'flipped' : ''}" id="flashcard-element">
           <div class="flashcard-inner">
             <!-- Ön Yüz: İngilizce & Okunuş -->
-            <div class="flashcard-face flashcard-front">
+            <div class="flashcard-face flashcard-front relative">
+              <!-- Yıldız / Bookmark Butonu -->
+              <button id="fc-star-btn" class="absolute top-4 right-4 p-2 rounded-xl transition ${WordStore.isInStudyList(word.en) ? 'text-amber-400 bg-amber-500/20 border border-amber-500/40' : 'text-slate-500 hover:text-amber-400 bg-slate-800/80 border border-slate-700'}" title="Özel Listeye Ekle/Çıkar">
+                <i data-lucide="star" class="w-5 h-5 ${WordStore.isInStudyList(word.en) ? 'fill-amber-400' : ''}"></i>
+              </button>
+
               <span class="text-xs uppercase tracking-widest text-brand-400 font-semibold mb-2">İngilizce</span>
               <h2 class="text-3xl sm:text-4xl font-extrabold text-white mb-2 font-display">${word.en}</h2>
               <p class="text-base font-mono text-slate-400 mb-6">${word.ipa ? `[${word.ipa}]` : ''}</p>
@@ -725,6 +827,7 @@ class FlashcardsGame {
   bindEvents(word) {
     const card = document.getElementById('flashcard-element');
     const listenBtn = document.getElementById('card-listen-btn');
+    const starBtn = document.getElementById('fc-star-btn');
     const prevBtn = document.getElementById('prev-card-btn');
     const nextBtn = document.getElementById('next-card-btn');
     const markKnownBtn = document.getElementById('mark-known-btn');
@@ -732,10 +835,18 @@ class FlashcardsGame {
 
     if (card) {
       card.addEventListener('click', (e) => {
-        if (e.target.closest('#card-listen-btn')) return;
+        if (e.target.closest('#card-listen-btn') || e.target.closest('#fc-star-btn')) return;
         this.isFlipped = !this.isFlipped;
         card.classList.toggle('flipped', this.isFlipped);
         AudioService.playSfx('click');
+      });
+    }
+
+    if (starBtn) {
+      starBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleStudyListHandler(word.en);
+        this.render();
       });
     }
 
@@ -4157,10 +4268,40 @@ const AuthStore = {
         console.warn('Wrong words fetch error:', err);
       }
 
+      // 3. Neon DB'den Kullanıcının Özel Çalışma Listesini Çek
+      try {
+        const studyResp = await fetch(`/api/study-list?user_id=${this.user.id}`);
+        if (studyResp.ok) {
+          const studyData = await studyResp.json();
+          if (studyData.success && Array.isArray(studyData.studyList)) {
+            WordStore.setStudyList(studyData.studyList);
+          }
+        }
+      } catch (err) {
+        console.warn('Study list fetch error:', err);
+      }
+
       WordStore.setWords(words);
     } catch (e) {
       console.warn('Backend words fetch error:', e);
       WordStore.setWords([]);
+    }
+  },
+
+  async syncStudyListWord(wordEn, action = 'add') {
+    if (!this.user || !this.user.id || !wordEn) return;
+    try {
+      const endpoint = action === 'remove' ? '/api/study-list/remove' : '/api/study-list/add';
+      await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: this.user.id,
+          english: wordEn
+        })
+      });
+    } catch (e) {
+      console.warn('Sync study list word error:', e);
     }
   },
 
