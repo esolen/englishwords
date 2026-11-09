@@ -4352,8 +4352,24 @@ const AuthStore = {
   }
 };
 
+// PWA Service Worker Kaydı (Progressive Web App Registration)
+function registerPwaServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then((reg) => {
+          console.log('PWA ServiceWorker kayıt başarılı, scope:', reg.scope);
+        })
+        .catch((err) => {
+          console.warn('PWA ServiceWorker kayıt uyarısı:', err);
+        });
+    });
+  }
+}
+
 // Başlangıç Kurulumu
 document.addEventListener('DOMContentLoaded', () => {
+  registerPwaServiceWorker();
   AudioService.init();
   AuthStore.init();
   setupModals();
