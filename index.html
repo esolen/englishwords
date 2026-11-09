@@ -2,8 +2,8 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
-  <!-- Çentik ve Güvenli Alan Koruması (Safe Area Viewport-fit) -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+  <!-- Standart Mobil Uyumlu ve Erişilebilir Viewport -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
   <title>İngilizce Kelime Dünyası - Oyunlarla İngilizce Öğren</title>
 
   <!-- PWA & Web App Manifest -->
@@ -249,6 +249,32 @@
               <span>Sadece Seçtiğim Kelimelerle Çalış</span>
             </label>
             <input type="checkbox" id="custom-study-filter-toggle" class="w-4 h-4 rounded text-amber-500 focus:ring-amber-400 bg-slate-900 border-slate-600 cursor-pointer">
+          </div>
+        </div>
+
+        <!-- Sağa-Sola Kaydırılabilir Mobil Kategori ve Hızlı Filtre Sekmeleri (Swipeable Tabs) -->
+        <div class="w-full overflow-hidden">
+          <div class="horizontal-scroll-tabs flex items-center gap-2 py-2 px-1">
+            <button class="category-tab-btn active px-4 py-2 rounded-xl bg-brand-600 text-white font-semibold text-xs whitespace-nowrap shadow-md transition flex items-center gap-1.5" data-filter="all">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+              <span>Tüm Modüller</span>
+            </button>
+            <button class="category-tab-btn px-4 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 font-medium text-xs whitespace-nowrap border border-slate-700 transition flex items-center gap-1.5" data-filter="classic">
+              <i data-lucide="layers" class="w-3.5 h-3.5 text-blue-400"></i>
+              <span>Klasik Öğrenme</span>
+            </button>
+            <button class="category-tab-btn px-4 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 font-medium text-xs whitespace-nowrap border border-slate-700 transition flex items-center gap-1.5" data-filter="interactive">
+              <i data-lucide="pen-tool" class="w-3.5 h-3.5 text-amber-400"></i>
+              <span>İnteraktif & Yazı</span>
+            </button>
+            <button class="category-tab-btn px-4 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 font-medium text-xs whitespace-nowrap border border-slate-700 transition flex items-center gap-1.5" data-filter="speed">
+              <i data-lucide="timer" class="w-3.5 h-3.5 text-rose-400"></i>
+              <span>Hız & Arcade</span>
+            </button>
+            <button class="category-tab-btn px-4 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 font-medium text-xs whitespace-nowrap border border-slate-700 transition flex items-center gap-1.5" data-filter="extra">
+              <i data-lucide="gamepad-2" class="w-3.5 h-3.5 text-purple-400"></i>
+              <span>Ekstra Mini Oyunlar</span>
+            </button>
           </div>
         </div>
 
