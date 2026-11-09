@@ -232,14 +232,40 @@
           </div>
         </div>
 
-        <!-- Ana Oyun Modülleri Başlığı & Özel Çalışma Listesi Filtresi -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-          <div>
-            <h3 class="text-xl sm:text-2xl font-bold font-display text-white flex items-center gap-2">
-              <i data-lucide="layout-grid" class="w-6 h-6 text-brand-400"></i>
-              Öğrenme Modülleri & Oyunlar
-            </h3>
-            <p class="text-slate-400 text-xs sm:text-sm">İstediğin modülü seç ve kelimeleri pekiştir</p>
+        <!-- Ana Oyun Modülleri Başlığı & Sağ Boşluktaki Senkronize Hızlı Erişim Butonları -->
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div class="flex flex-wrap items-center gap-3">
+            <div>
+              <h3 class="text-xl sm:text-2xl font-bold font-display text-white flex items-center gap-2">
+                <i data-lucide="layout-grid" class="w-6 h-6 text-brand-400"></i>
+                Öğrenme Modülleri & Oyunlar
+              </h3>
+              <p class="text-slate-400 text-xs sm:text-sm">İstediğin modülü seç ve kelimeleri pekiştir</p>
+            </div>
+
+            <!-- Başlığın Sağındaki Senkronize Sayaçlı Buton Kopyaları (Zorlu, Özel, Kelimelerim) -->
+            <div class="flex flex-wrap items-center gap-1.5 pt-1 sm:pt-0">
+              <!-- 1. Küçük Klon: Zorlu Kelimeler Butonu -->
+              <button id="inline-difficult-btn" class="flex items-center space-x-1.5 py-1 px-2.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition text-xs font-medium shadow-sm active:scale-95" title="Zorlu Kelimeler Havuzu">
+                <i data-lucide="flame" class="w-3.5 h-3.5 text-rose-400"></i>
+                <span>Zorlu:</span>
+                <span id="inline-difficult-count-badge" class="font-bold ml-0.5 bg-rose-500 text-white text-[11px] px-1.5 py-0.2 rounded-full">0</span>
+              </button>
+
+              <!-- 2. Küçük Klon: Özel Çalışma Listesi Butonu -->
+              <button id="inline-study-list-btn" class="flex items-center space-x-1.5 py-1 px-2.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition text-xs font-medium shadow-sm active:scale-95" title="Özel Çalışma Listesi">
+                <i data-lucide="star" class="w-3.5 h-3.5 text-amber-400 fill-amber-400"></i>
+                <span>Özel:</span>
+                <span id="inline-study-list-count-badge" class="font-bold ml-0.5 bg-amber-500 text-slate-950 text-[11px] px-1.5 py-0.2 rounded-full">0</span>
+              </button>
+
+              <!-- 3. Küçük Klon: Kelimelerim Yönetim Butonu -->
+              <button id="inline-db-modal-btn" class="flex items-center space-x-1.5 py-1 px-2.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition text-xs font-semibold shadow-md shadow-brand-600/25 active:scale-95" title="Kelime Veritabanı Yönetimi">
+                <i data-lucide="database" class="w-3.5 h-3.5"></i>
+                <span>Kelimelerim</span>
+                <span id="inline-total-words-badge" class="bg-brand-800/80 px-1.5 py-0.2 rounded text-[11px] font-mono">0</span>
+              </button>
+            </div>
           </div>
 
           <!-- Özel Çalışma Havuzu Toggle Switch -->

@@ -320,6 +320,7 @@ function updateHeaderBadges() {
   const difficult = WordStore.getDifficultWords();
   const studyListSize = WordStore.studyList ? WordStore.studyList.size : 0;
 
+  // 1. Üst Bar Sayaçları
   const totalBadge = document.getElementById('total-words-badge');
   if (totalBadge) totalBadge.textContent = WordStore.useOnlyStudyList ? `${words.length} (Özel)` : allWords.length;
 
@@ -331,6 +332,16 @@ function updateHeaderBadges() {
 
   const studyListBadge = document.getElementById('study-list-count-badge');
   if (studyListBadge) studyListBadge.textContent = studyListSize;
+
+  // 2. Başlık Yanındaki Klon Mobil Buton Sayaçları
+  const inlineTotalBadge = document.getElementById('inline-total-words-badge');
+  if (inlineTotalBadge) inlineTotalBadge.textContent = WordStore.useOnlyStudyList ? `${words.length} (Özel)` : allWords.length;
+
+  const inlineDiffBadge = document.getElementById('inline-difficult-count-badge');
+  if (inlineDiffBadge) inlineDiffBadge.textContent = difficult.length;
+
+  const inlineStudyBadge = document.getElementById('inline-study-list-count-badge');
+  if (inlineStudyBadge) inlineStudyBadge.textContent = studyListSize;
 
   renderWordsTable();
 }
@@ -639,6 +650,29 @@ function setupModals() {
         studyToggle.dispatchEvent(new Event('change'));
       }
     });
+  }
+
+  // Başlık Yanındaki Klon Mobil Buton Olayları (Senkronize Tetikleyiciler)
+  const inlineDiffBtn = document.getElementById('inline-difficult-btn');
+  if (inlineDiffBtn) {
+    inlineDiffBtn.addEventListener('click', () => {
+      launchGame('difficult-words');
+    });
+  }
+
+  const inlineStudyBtn = document.getElementById('inline-study-list-btn');
+  if (inlineStudyBtn) {
+    inlineStudyBtn.addEventListener('click', () => {
+      if (studyToggle) {
+        studyToggle.checked = !studyToggle.checked;
+        studyToggle.dispatchEvent(new Event('change'));
+      }
+    });
+  }
+
+  const inlineDbBtn = document.getElementById('inline-db-modal-btn');
+  if (inlineDbBtn) {
+    inlineDbBtn.addEventListener('click', openDb);
   }
 }
 
