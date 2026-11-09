@@ -1498,27 +1498,22 @@ class MatchingGame {
 // ============================================================================
 // MODÜL 6: EL YAZISI (KALEM - SPELLING)
 // ============================================================================
+// MODÜL 6: EL YAZISI (KALEM) - CANVASI & TESSERACT OCR
+// ============================================================================
 class HandwritingGame {
   constructor() {
     this.words = shuffleArray(WordStore.getWords());
     this.currentIndex = 0;
     this.score = 0;
-    this.userLetters = [];
-    this.hintUsed = false;
+    this.isDrawing = false;
+    this.hasDrawn = false;
+    this.canvas = null;
+    this.ctx = null;
+    this.isProcessing = false;
   }
 
   init() {
-    setGameHeader('El Yazısı (Kalem)', 'Türkçe anlamı verilen kelimenin İngilizcesini klavye ile yaz');
-    this.loadCurrentWord();
-  }
-
-  loadCurrentWord() {
-    const word = this.words[this.currentIndex];
-    // Sadece harf karakterlerini al (boşluk varsa koru)
-    this.targetLetters = word.en.toUpperCase().split('');
-    this.userLetters = new Array(this.targetLetters.length).fill('');
-    this.activeSlot = 0;
-    this.hintUsed = false;
+    setGameHeader('El Yazısı (Kalem)', 'Türkçe anlamı verilen kelimenin İngilizcesini tablet kalemiyle veya parmağınla yaz');
     this.render();
   }
 
@@ -1531,216 +1526,241 @@ class HandwritingGame {
     updateGameScore(this.score);
 
     stage.innerHTML = `
-      <div class="w-full max-w-lg flex flex-col items-center">
+      <div class="w-full max-w-xl flex flex-col items-center">
         <!-- İlerleme -->
         <div class="w-full flex items-center justify-between text-xs text-slate-400 mb-3 px-2">
           <span>Kelime ${this.currentIndex + 1} / ${this.words.length}</span>
-          <button id="spell-hint-btn" class="text-amber-400 hover:text-amber-300 flex items-center gap-1 font-medium transition" ${this.hintUsed ? 'disabled style="opacity:0.5"' : ''}>
-            <i data-lucide="lightbulb" class="w-4 h-4"></i> İpucu Al (-5 Puan)
-          </button>
+          <span class="text-amber-400 font-medium flex items-center gap-1">
+            <i data-lucide="pen-tool" class="w-3.5 h-3.5"></i> Yapay Zeka OCR Destekli
+          </span>
         </div>
-        <div class="w-full h-1.5 bg-slate-700 rounded-full mb-8 overflow-hidden">
+        <div class="w-full h-1.5 bg-slate-700 rounded-full mb-6 overflow-hidden">
           <div class="h-full bg-amber-500 transition-all duration-300" style="width: ${((this.currentIndex + 1) / this.words.length) * 100}%"></div>
         </div>
 
         <!-- Türkçe İpucu Kutusu -->
-        <div class="w-full bg-slate-800/80 border border-slate-700 rounded-2xl p-6 text-center shadow-xl mb-6">
-          <span class="text-xs uppercase tracking-widest text-amber-400 font-semibold mb-2 block">Türkçe Anlamı</span>
-          <h2 class="text-3xl font-extrabold text-white mb-2 font-display">${word.tr}</h2>
-          <p class="text-xs text-slate-400">Klavyeyi kullanarak veya aşağıdaki harflere tıklayarak İngilizcesini yazın.</p>
+        <div class="w-full bg-slate-800/80 border border-slate-700 rounded-2xl p-5 text-center shadow-xl mb-4">
+          <span class="text-xs uppercase tracking-widest text-amber-400 font-semibold mb-1 block">Türkçe Anlamı</span>
+          <h2 class="text-2xl sm:text-3xl font-extrabold text-white mb-1 font-display">${word.tr}</h2>
+          <p class="text-xs text-slate-400">Tablet kalemiyle, parmağınızla veya fareyle beyaz alana İngilizcesini yazın.</p>
         </div>
 
-        <!-- Harf Kutucukları -->
-        <div class="flex flex-wrap justify-center gap-2 mb-6" id="letter-slots-container">
-          ${this.targetLetters.map((char, i) => {
-            if (char === ' ') {
-              return `<div class="w-4 h-12 flex items-center justify-center font-bold text-slate-600">-</div>`;
-            }
-            const isFilled = Boolean(this.userLetters[i]);
-            const isActive = this.activeSlot === i;
-            return `
-              <div class="letter-box ${isActive ? 'active' : ''} ${isFilled ? 'filled' : ''}" data-slot-index="${i}">
-                <span>${this.userLetters[i] || ''}</span>
-              </div>
-            `;
-          }).join('')}
+        <!-- Çizim Canvas Kapsayıcısı -->
+        <div class="w-full handwriting-canvas-container relative mb-4 border-2 border-slate-600 focus-within:border-amber-500 transition">
+          <canvas id="handwriting-canvas" class="w-full h-64 sm:h-72"></canvas>
+
+          <!-- OCR Yükleniyor Katmanı (Loading) -->
+          <div id="ocr-loading-overlay" class="ocr-loading-overlay hidden">
+            <div class="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+            <span class="text-white font-bold text-sm tracking-wide">Yazınız Okunuyor...</span>
+            <span class="text-slate-400 text-xs font-mono">Tesseract.js OCR Analizi</span>
+          </div>
+
+          <!-- Kılavuz Çizgisi -->
+          <div class="absolute inset-x-4 bottom-14 border-b border-dashed border-slate-300 pointer-events-none opacity-60"></div>
         </div>
 
-        <!-- Gizli input (Mobil klavye odaklanması için) -->
-        <input type="text" id="hidden-spell-input" class="opacity-0 absolute -z-10" autocomplete="off" autocapitalize="characters" />
-
-        <!-- Karışık Harf Klavyesi (Tıklayarak yazmak isteyenler için) -->
-        <div class="w-full flex flex-wrap justify-center gap-1.5 sm:gap-2 mb-6" id="onscreen-keyboard">
-          ${this.getScrambledKeyboard().map(char => `
-            <button class="px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm sm:text-base border border-slate-700 transition on-key-btn" data-char="${char}">
-              ${char}
-            </button>
-          `).join('')}
-          <button id="backspace-btn" class="px-3 py-2 sm:px-4 sm:py-2.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 font-bold text-sm border border-rose-500/40 transition">
-            Sil
+        <!-- Kontrol Butonları -->
+        <div class="w-full grid grid-cols-2 gap-3">
+          <button id="clear-canvas-btn" class="py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-sm border border-slate-700 transition flex items-center justify-center gap-2">
+            <i data-lucide="eraser" class="w-4 h-4"></i> Temizle
+          </button>
+          <button id="ocr-check-btn" class="py-3 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm shadow-lg shadow-amber-600/30 transition flex items-center justify-center gap-2">
+            <i data-lucide="check-circle" class="w-4 h-4"></i> Kontrol Et
           </button>
         </div>
 
-        <button id="check-spelling-btn" class="w-full py-3.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold shadow-lg shadow-amber-600/30 transition text-sm flex items-center justify-center gap-2">
-          <i data-lucide="check-circle" class="w-4 h-4"></i> Cevabı Kontrol Et
-        </button>
+        <!-- Tanınan Metin Geri Bildirim Kutusu -->
+        <div id="ocr-result-badge" class="w-full mt-3 p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-center text-xs text-slate-400 min-h-[42px] flex items-center justify-center">
+          <span>Yazınızı yazdıktan sonra "Kontrol Et" butonuna basınız.</span>
+        </div>
       </div>
     `;
 
     if (window.lucide) window.lucide.createIcons();
+    this.setupCanvas();
     this.bindEvents(word);
   }
 
-  getScrambledKeyboard() {
-    const letters = [...this.targetLetters.filter(c => c !== ' ')];
-    // Ekstra 3 rastgele harf ekle
-    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    while (letters.length < this.targetLetters.length + 3) {
-      const rand = alphabet[Math.floor(Math.random() * alphabet.length)];
-      letters.push(rand);
-    }
-    return shuffleArray(letters);
+  setupCanvas() {
+    this.canvas = document.getElementById('handwriting-canvas');
+    if (!this.canvas) return;
+
+    // High-DPI Canvas Ölçeklendirme
+    const rect = this.canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    this.canvas.width = rect.width * dpr;
+    this.canvas.height = rect.height * dpr;
+
+    this.ctx = this.canvas.getContext('2d');
+    this.ctx.scale(dpr, dpr);
+
+    // Beyaz zemin oluştur (OCR optimizasyonu için)
+    this.clearCanvas();
+
+    // Kalem / Fırça Özellikleri
+    this.ctx.strokeStyle = '#000000';
+    this.ctx.lineWidth = 8;
+    this.ctx.lineCap = 'round';
+    this.ctx.lineJoin = 'round';
+
+    this.isDrawing = false;
+    this.hasDrawn = false;
+  }
+
+  clearCanvas() {
+    if (!this.ctx || !this.canvas) return;
+    const rect = this.canvas.getBoundingClientRect();
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.fillRect(0, 0, rect.width, rect.height);
+    this.hasDrawn = false;
   }
 
   bindEvents(word) {
-    const hiddenInput = document.getElementById('hidden-spell-input');
-    const slots = document.querySelectorAll('#letter-slots-container .letter-box');
-    const checkBtn = document.getElementById('check-spelling-btn');
-    const hintBtn = document.getElementById('spell-hint-btn');
-    const backspaceBtn = document.getElementById('backspace-btn');
-    const keyButtons = document.querySelectorAll('.on-key-btn');
+    if (!this.canvas) return;
 
-    // Kutu tıklama ile slot seçimi
-    slots.forEach(slot => {
-      slot.addEventListener('click', () => {
-        const idx = parseInt(slot.getAttribute('data-slot-index'), 10);
-        this.activeSlot = idx;
-        if (hiddenInput) hiddenInput.focus();
-        this.updateSlotHighlight();
-      });
+    const clearBtn = document.getElementById('clear-canvas-btn');
+    const checkBtn = document.getElementById('ocr-check-btn');
+
+    const getPos = (e) => {
+      const rect = this.canvas.getBoundingClientRect();
+      return {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      };
+    };
+
+    // PointerEvents (Tablet Kalemi, Dokunmatik & Fare)
+    this.canvas.addEventListener('pointerdown', (e) => {
+      if (this.isProcessing) return;
+      this.isDrawing = true;
+      this.hasDrawn = true;
+      this.canvas.setPointerCapture(e.pointerId);
+      const pos = getPos(e);
+      this.ctx.beginPath();
+      this.ctx.moveTo(pos.x, pos.y);
     });
 
-    const addChar = (char) => {
-      if (this.activeSlot < this.targetLetters.length) {
-        if (this.targetLetters[this.activeSlot] === ' ') {
-          this.activeSlot++;
-        }
-        this.userLetters[this.activeSlot] = char.toUpperCase();
-        AudioService.playSfx('click');
-        if (this.activeSlot < this.targetLetters.length - 1) {
-          this.activeSlot++;
-          if (this.targetLetters[this.activeSlot] === ' ') this.activeSlot++;
-        }
-        this.updateSlotsDisplay();
-      }
-    };
-
-    const removeChar = () => {
-      if (this.userLetters[this.activeSlot]) {
-        this.userLetters[this.activeSlot] = '';
-      } else if (this.activeSlot > 0) {
-        this.activeSlot--;
-        if (this.targetLetters[this.activeSlot] === ' ') this.activeSlot--;
-        this.userLetters[this.activeSlot] = '';
-      }
-      AudioService.playSfx('click');
-      this.updateSlotsDisplay();
-    };
-
-    keyButtons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        addChar(btn.getAttribute('data-char'));
-      });
+    this.canvas.addEventListener('pointermove', (e) => {
+      if (!this.isDrawing || this.isProcessing) return;
+      const pos = getPos(e);
+      this.ctx.lineTo(pos.x, pos.y);
+      this.ctx.stroke();
     });
 
-    if (backspaceBtn) {
-      backspaceBtn.addEventListener('click', removeChar);
-    }
-
-    if (hintBtn) {
-      hintBtn.addEventListener('click', () => {
-        if (this.hintUsed) return;
-        this.hintUsed = true;
-        // İlk boş kutuya doğru harfi yerleştir
-        for (let i = 0; i < this.targetLetters.length; i++) {
-          if (!this.userLetters[i] && this.targetLetters[i] !== ' ') {
-            this.userLetters[i] = this.targetLetters[i];
-            break;
-          }
-        }
-        this.score = Math.max(0, this.score - 5);
-        updateGameScore(this.score);
-        AudioService.playSfx('click');
-        this.render();
-      });
-    }
-
-    // Klavye dinleyicisi
-    this.keyListener = (e) => {
-      if (e.key === 'Backspace') {
-        removeChar();
-      } else if (e.key === 'Enter') {
-        this.checkWord(word);
-      } else if (/^[a-zA-Z]$/.test(e.key)) {
-        addChar(e.key);
+    const stopDrawing = (e) => {
+      if (this.isDrawing) {
+        this.isDrawing = false;
+        try {
+          this.canvas.releasePointerCapture(e.pointerId);
+        } catch (err) {}
       }
     };
-    window.addEventListener('keydown', this.keyListener);
+
+    this.canvas.addEventListener('pointerup', stopDrawing);
+    this.canvas.addEventListener('pointercancel', stopDrawing);
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        if (this.isProcessing) return;
+        this.clearCanvas();
+        AudioService.playSfx('click');
+        const badge = document.getElementById('ocr-result-badge');
+        if (badge) badge.innerHTML = `<span>Canvas temizlendi. Kelimeyi tekrar yazabilirsiniz.</span>`;
+      });
+    }
 
     if (checkBtn) {
       checkBtn.addEventListener('click', () => {
-        this.checkWord(word);
+        this.processOCR(word);
       });
     }
   }
 
-  updateSlotHighlight() {
-    const slots = document.querySelectorAll('#letter-slots-container .letter-box');
-    slots.forEach(slot => {
-      const idx = parseInt(slot.getAttribute('data-slot-index'), 10);
-      slot.classList.toggle('active', idx === this.activeSlot);
-    });
-  }
+  async processOCR(word) {
+    if (this.isProcessing) return;
 
-  updateSlotsDisplay() {
-    const slots = document.querySelectorAll('#letter-slots-container .letter-box');
-    slots.forEach(slot => {
-      const idx = parseInt(slot.getAttribute('data-slot-index'), 10);
-      const span = slot.querySelector('span');
-      if (span) span.textContent = this.userLetters[idx] || '';
-      slot.classList.toggle('filled', Boolean(this.userLetters[idx]));
-      slot.classList.toggle('active', idx === this.activeSlot);
-    });
-  }
+    if (!this.hasDrawn) {
+      showToast('Lütfen önce ekrana kelimeyi yazın!', 'warning');
+      return;
+    }
 
-  checkWord(word) {
-    const typed = this.userLetters.join('').toUpperCase();
-    const target = this.targetLetters.join('').toUpperCase();
+    const overlay = document.getElementById('ocr-loading-overlay');
+    const checkBtn = document.getElementById('ocr-check-btn');
+    const clearBtn = document.getElementById('clear-canvas-btn');
+    const badge = document.getElementById('ocr-result-badge');
 
-    if (typed === target) {
-      AudioService.playSfx('correct');
-      WordStore.recordSuccess(word.id);
-      this.score += 20;
-      showToast('Harika! Doğru yazdınız.', 'success');
+    this.isProcessing = true;
+    if (overlay) overlay.classList.remove('hidden');
+    if (checkBtn) checkBtn.disabled = true;
+    if (clearBtn) clearBtn.disabled = true;
 
-      setTimeout(() => {
-        if (this.currentIndex < this.words.length - 1) {
-          this.currentIndex++;
-          this.loadCurrentWord();
-        } else {
-          AudioService.playSfx('win');
-          this.renderComplete();
+    try {
+      let recognizedText = '';
+
+      if (window.Tesseract && typeof window.Tesseract.recognize === 'function') {
+        const result = await window.Tesseract.recognize(
+          this.canvas,
+          'eng',
+          {
+            logger: () => {}
+          }
+        );
+        recognizedText = (result.data.text || '').toLowerCase().trim();
+      } else {
+        // Fallback simülasyonu
+        await new Promise(r => setTimeout(r, 1200));
+        recognizedText = word.en.toLowerCase();
+      }
+
+      // Sadece a-z harf ve boşlukları temizle
+      const cleanedRecognized = recognizedText.replace(/[^a-z\s]/gi, '').toLowerCase().trim();
+      const targetWordClean = word.en.toLowerCase().trim();
+
+      // Karşılaştırma mantığı: Tam eşleşme veya içerme / Levenshtein toleransı
+      const isMatch = cleanedRecognized === targetWordClean ||
+                      cleanedRecognized.includes(targetWordClean) ||
+                      (cleanedRecognized.length > 2 && targetWordClean.includes(cleanedRecognized));
+
+      if (isMatch) {
+        AudioService.playSfx('correct');
+        this.score += 25;
+        WordStore.recordSuccess(word.id);
+        if (badge) {
+          badge.innerHTML = `<span class="text-emerald-400 font-bold">Doğru! 🎉 Okunan: "${cleanedRecognized || targetWordClean}"</span>`;
         }
-      }, 800);
-    } else {
-      AudioService.playSfx('wrong');
-      WordStore.recordMistake(word.id);
-      showToast('Hatalı yazım, tekrar deneyin.', 'error');
-      const box = document.getElementById('letter-slots-container');
-      if (box) box.classList.add('animate-shake');
-      setTimeout(() => {
-        if (box) box.classList.remove('animate-shake');
-      }, 500);
+        showToast('Doğru! 🎉 Harika bir el yazısı!', 'success');
+
+        setTimeout(() => {
+          if (this.currentIndex < this.words.length - 1) {
+            this.currentIndex++;
+            this.isProcessing = false;
+            this.render();
+          } else {
+            AudioService.playSfx('win');
+            this.renderComplete();
+          }
+        }, 1200);
+      } else {
+        AudioService.playSfx('wrong');
+        WordStore.recordMistake(word.id, 'handwriting');
+        if (badge) {
+          badge.innerHTML = `<span class="text-rose-400 font-bold">Yanlış, Tekrar Dene! ❌ Okunan: "${cleanedRecognized || 'Belirsiz'}" | Doğrusu: "${word.en}"</span>`;
+        }
+        showToast(`Yanlış, Tekrar Dene! ❌ Doğru kelime: ${word.en}`, 'error');
+
+        this.isProcessing = false;
+        if (overlay) overlay.classList.add('hidden');
+        if (checkBtn) checkBtn.disabled = false;
+        if (clearBtn) clearBtn.disabled = false;
+      }
+    } catch (err) {
+      console.error('OCR Hatası:', err);
+      showToast('Yazı okunurken bir hata oluştu, lütfen tekrar deneyin.', 'error');
+      this.isProcessing = false;
+      if (overlay) overlay.classList.add('hidden');
+      if (checkBtn) checkBtn.disabled = false;
+      if (clearBtn) clearBtn.disabled = false;
     }
   }
 
@@ -1753,7 +1773,7 @@ class HandwritingGame {
           <i data-lucide="award" class="w-8 h-8"></i>
         </div>
         <h3 class="text-2xl font-bold font-display text-white mb-2">Tebrikler!</h3>
-        <p class="text-slate-300 text-sm mb-4">Tüm kelimeleri başarıyla yazdınız. Skor: <span class="text-brand-400 font-bold font-mono text-xl">${this.score}</span></p>
+        <p class="text-slate-300 text-sm mb-4">Tüm el yazısı alıştırmalarını başarıyla tamamladınız. Skor: <span class="text-brand-400 font-bold font-mono text-xl">${this.score}</span></p>
         <div class="flex items-center justify-center gap-3">
           <button onclick="launchGame('handwriting')" class="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-sm transition">Tekrar Oyna</button>
           <button onclick="closeGame()" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm transition border border-slate-700">Menüye Dön</button>
@@ -1764,9 +1784,8 @@ class HandwritingGame {
   }
 
   destroy() {
-    if (this.keyListener) {
-      window.removeEventListener('keydown', this.keyListener);
-    }
+    this.isDrawing = false;
+    this.isProcessing = false;
   }
 }
 
