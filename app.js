@@ -597,6 +597,40 @@ function setupModals() {
     });
   }
 
+  // Yatay Kaydırılabilir Sekmeler Dinleyicisi (Swipeable Tabs Filter)
+  const tabButtons = document.querySelectorAll('.category-tab-btn');
+  tabButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      tabButtons.forEach(b => {
+        b.classList.remove('active', 'bg-brand-600', 'text-white');
+        b.classList.add('bg-slate-800/90', 'text-slate-300');
+      });
+      btn.classList.add('active', 'bg-brand-600', 'text-white');
+      btn.classList.remove('bg-slate-800/90', 'text-slate-300');
+
+      const filter = btn.getAttribute('data-filter');
+      const cards = document.querySelectorAll('#game-modules-grid .game-card');
+
+      cards.forEach(card => {
+        const gameId = card.getAttribute('data-game') || '';
+        const isExtra = card.id === 'open-extra-games-card';
+
+        if (filter === 'all') {
+          card.classList.remove('hidden');
+        } else if (filter === 'classic') {
+          card.classList.toggle('hidden', !['flashcards', 'multiple-choice', 'difficult-words', 'true-false'].includes(gameId));
+        } else if (filter === 'interactive') {
+          card.classList.toggle('hidden', !['matching', 'handwriting', 'pronunciation', 'fill-blanks'].includes(gameId));
+        } else if (filter === 'speed') {
+          card.classList.toggle('hidden', !['hangman', 'time-attack', 'falling-words'].includes(gameId));
+        } else if (filter === 'extra') {
+          card.classList.toggle('hidden', !isExtra);
+        }
+      });
+      AudioService.playSfx('click');
+    });
+  });
+
   const studyListBadgeBtn = document.getElementById('nav-study-list-badge-btn');
   if (studyListBadgeBtn) {
     studyListBadgeBtn.addEventListener('click', () => {
