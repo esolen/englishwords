@@ -46,6 +46,8 @@ async function ensureTables() {
       created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE INDEX IF NOT EXISTS idx_user_words_user_id ON user_words(user_id);
+
     CREATE TABLE IF NOT EXISTS user_statistics (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -54,6 +56,8 @@ async function ensureTables() {
       wrong_words JSONB DEFAULT '[]'::jsonb,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE INDEX IF NOT EXISTS idx_user_stats_user_game ON user_statistics(user_id, game_type);
   `;
 
   await p.query(createQuery);

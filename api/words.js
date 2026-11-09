@@ -1,19 +1,4 @@
-const fs = require('fs');
-const path = require('path');
 const { getPool, ensureTables } = require('./_db');
-
-function getDefaultWords() {
-  try {
-    const filePath = path.join(process.cwd(), 'words.json');
-    if (fs.existsSync(filePath)) {
-      const content = fs.readFileSync(filePath, 'utf8');
-      return JSON.parse(content);
-    }
-  } catch (err) {
-    console.error('Error reading words.json:', err);
-  }
-  return [];
-}
 
 module.exports = async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
@@ -22,23 +7,30 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ success: false, error: 'Method Not Allowed' });
   }
 
-  const defaultWords = getDefaultWords();
   const userId = req.query.user_id ? parseInt(req.query.user_id, 10) : null;
 
+  if (!userId) {
+    return res.status(401).json({
+      success: false,
+      error: 'Yetkisiz erişim: Kullanıcı oturumu gereklidir.',
+      words: []
+    });
+  }
+
   const pool = getPool();
-  if (!pool || !userId) {
-    // If DB is not available or user is guest, return default words
+  if (!pool) {
+    // Veritabanı bağlantısı henüz yapılandırılmamışsa boş liste dön
     return res.status(200).json({
       success: true,
-      words: defaultWords,
-      customCount: 0
+      words: [],
+      message: 'Veritabanı bağlantısı bekleniyor.'
     });
   }
 
   try {
     await ensureTables();
     const result = await pool.query(
-      'SELECT id, english, turkish, pronunciation FROM user_words WHERE user_id = $1 ORDER BY id ASC',
+      'SELECT id, english, turkish, pronunciation FROM user_words WHERE user_id = $1 ORDER BY id DESC',
       [userId]
     );
 
@@ -49,25 +41,17 @@ module.exports = async function handler(req, res) {
       pronunciation: r.pronunciation || ''
     }));
 
-    // Merge default words with user specific words (avoid duplicate english terms)
-    const existingEnglish = new Set(userWords.map(w => w.english.toLowerCase()));
-    const filteredDefaults = defaultWords.filter(w => !existingEnglish.has(w.english.toLowerCase()));
-
-    const merged = [...filteredDefaults, ...userWords];
-
     return res.status(200).json({
       success: true,
-      words: merged,
-      customCount: userWords.length
+      words: userWords,
+      count: userWords.length
     });
   } catch (err) {
     console.error('Fetch words error:', err);
-    // Graceful fallback to default words
-    return res.status(200).json({
-      success: true,
-      words: defaultWords,
-      customCount: 0,
-      warning: 'Could not fetch database words, returning defaults'
+    return res.status(500).json({
+      success: false,
+      error: 'Kelimeler getirilirken bir hata oluştu.',
+      words: []
     });
   }
 };
