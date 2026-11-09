@@ -1,0 +1,22 @@
+[
+  { "english": "accomplish", "turkish": "başarmak", "pronunciation": "uh-kahm-plish" },
+  { "english": "accurate", "turkish": "doğru, kesin", "pronunciation": "ak-yer-it" },
+  { "english": "benefit", "turkish": "fayda, yarar", "pronunciation": "ben-uh-fit" },
+  { "english": "challenge", "turkish": "meydan okuma, zorluk", "pronunciation": "chal-inj" },
+  { "english": "discover", "turkish": "keşfetmek", "pronunciation": "dih-skuv-er" },
+  { "english": "effort", "turkish": "çaba, gayret", "pronunciation": "ef-ert" },
+  { "english": "fluent", "turkish": "akıcı", "pronunciation": "floo-uhnt" },
+  { "english": "gather", "turkish": "toplamak, bir araya getirmek", "pronunciation": "gath-er" },
+  { "english": "hesitate", "turkish": "tereddüt etmek", "pronunciation": "hez-i-tayt" },
+  { "english": "improve", "turkish": "geliştirmek", "pronunciation": "im-proov" },
+  { "english": "journey", "turkish": "yolculuk", "pronunciation": "jur-nee" },
+  { "english": "knowledge", "turkish": "bilgi", "pronunciation": "nah-lij" },
+  { "english": "maintain", "turkish": "sürdürmek, korumak", "pronunciation": "mayn-tayn" },
+  { "english": "opportunity", "turkish": "fırsat", "pronunciation": "op-er-too-ni-tee" },
+  { "english": "persist", "turkish": "ısrar etmek, azmetmek", "pronunciation": "per-sist" },
+  { "english": "reliable", "turkish": "güvenilir", "pronunciation": "ri-lahy-uh-buhl" },
+  { "english": "solution", "turkish": "çözüm", "pronunciation": "suh-loo-shun" },
+  { "english": "treasure", "turkish": "hazine", "pronunciation": "trezh-er" },
+  { "english": "valuable", "turkish": "değerli", "pronunciation": "val-yoo-uh-buhl" },
+  { "english": "wisdom", "turkish": "bilgelik", "pronunciation": "wiz-duhm" }
+]

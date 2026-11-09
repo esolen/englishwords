@@ -1,0 +1,12 @@
+{
+  "name": "english-learning-app",
+  "version": "1.0.0",
+  "description": "English vocabulary learning and gaming web app with Neon PostgreSQL and Vercel Serverless Functions",
+  "main": "app.js",
+  "scripts": {
+    "start": "node -e 'console.log(\"Static app served directly\")'"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}
