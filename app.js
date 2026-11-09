@@ -55,6 +55,10 @@ const WordStore = {
     try {
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(words));
       this.notifyUpdate();
+      // Neon veritabanına otomatik eşzamanlama (kullanıcı giriş yapmışsa)
+      if (AuthStore && AuthStore.user && AuthStore.user.id) {
+        AuthStore.syncWordsToBackend(words);
+      }
     } catch (e) {
       console.error('LocalStorage yazma hatası:', e);
     }
@@ -69,12 +73,15 @@ const WordStore = {
     return this.getWords().filter(w => (w.wrongCount || 0) >= this.DIFFICULT_THRESHOLD);
   },
 
-  recordMistake(wordId) {
+  recordMistake(wordId, gameType = 'general') {
     const words = this.getWords();
     const word = words.find(w => String(w.id) === String(wordId) || w.en.toLowerCase() === String(wordId).toLowerCase());
     if (word) {
       word.wrongCount = (word.wrongCount || 0) + 1;
       this.saveWords(words);
+      if (AuthStore && AuthStore.user && AuthStore.user.id) {
+        AuthStore.recordStatToBackend(gameType, 0, [word.en]);
+      }
     }
   },
 
@@ -3789,9 +3796,207 @@ GAMES['multiple-choice'] = MultipleChoiceGame;
 GAMES['difficult-words'] = DifficultWordsGame;
 GAMES['true-false'] = TrueFalseGame;
 
+// ============================================================================
+// AUTH & NEON VERİTABANI SERVİSİ (AUTH STORE)
+// ============================================================================
+const AuthStore = {
+  USER_STORAGE_KEY: 'wordplay_user_session_v1',
+  user: null,
+
+  init() {
+    try {
+      const stored = localStorage.getItem(this.USER_STORAGE_KEY);
+      if (stored) {
+        this.user = JSON.parse(stored);
+      }
+    } catch (e) {
+      console.warn('Auth session read error:', e);
+    }
+    this.updateUserUI();
+    this.setupAuthEvents();
+
+    if (this.user && this.user.id) {
+      this.fetchUserWords();
+    }
+  },
+
+  updateUserUI() {
+    const label = document.getElementById('user-auth-label');
+    const panel = document.getElementById('auth-logged-in-panel');
+    const form = document.getElementById('auth-form');
+    const loggedInName = document.getElementById('logged-in-username');
+    const title = document.getElementById('auth-modal-title');
+
+    if (this.user && this.user.username) {
+      if (label) label.textContent = this.user.username;
+      if (panel) panel.classList.remove('hidden');
+      if (form) form.classList.add('hidden');
+      if (loggedInName) loggedInName.textContent = this.user.username;
+      if (title) title.textContent = 'Hesabım';
+    } else {
+      if (label) label.textContent = 'Giriş Yap';
+      if (panel) panel.classList.add('hidden');
+      if (form) form.classList.remove('hidden');
+      if (title) title.textContent = 'Giriş Yap';
+    }
+  },
+
+  setupAuthEvents() {
+    const authBtn = document.getElementById('user-auth-btn');
+    const authModal = document.getElementById('auth-modal');
+    const closeBtn = document.getElementById('close-auth-modal-btn');
+    const logoutBtn = document.getElementById('auth-logout-btn');
+    const toggleModeBtn = document.getElementById('auth-toggle-mode-btn');
+    const form = document.getElementById('auth-form');
+    const submitBtn = document.getElementById('auth-submit-btn');
+    const errorMsg = document.getElementById('auth-error-msg');
+
+    let isRegisterMode = false;
+
+    const openAuth = () => {
+      if (authModal) authModal.classList.remove('hidden');
+      if (errorMsg) errorMsg.classList.add('hidden');
+      this.updateUserUI();
+    };
+
+    const closeAuth = () => {
+      if (authModal) authModal.classList.add('hidden');
+    };
+
+    if (authBtn) authBtn.addEventListener('click', openAuth);
+    if (closeBtn) closeBtn.addEventListener('click', closeAuth);
+
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', () => {
+        this.user = null;
+        localStorage.removeItem(this.USER_STORAGE_KEY);
+        this.updateUserUI();
+        showToast('Oturum kapatıldı.', 'info');
+        closeAuth();
+      });
+    }
+
+    if (toggleModeBtn) {
+      toggleModeBtn.addEventListener('click', () => {
+        isRegisterMode = !isRegisterMode;
+        const title = document.getElementById('auth-modal-title');
+        if (title) title.textContent = isRegisterMode ? 'Yeni Kayıt Ol' : 'Giriş Yap';
+        if (submitBtn) submitBtn.textContent = isRegisterMode ? 'Kayıt Ol' : 'Giriş Yap';
+        toggleModeBtn.textContent = isRegisterMode
+          ? 'Zaten hesabınız var mı? Giriş Yapın'
+          : 'Hesabınız yok mu? Hemen Kayıt Olun';
+        if (errorMsg) errorMsg.classList.add('hidden');
+      });
+    }
+
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('auth-username-input').value.trim();
+        const password = document.getElementById('auth-password-input').value;
+
+        if (errorMsg) errorMsg.classList.add('hidden');
+
+        try {
+          const endpoint = isRegisterMode ? '/api/auth/register' : '/api/auth/login';
+          const resp = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+          });
+
+          const data = await resp.json();
+          if (data.success && data.user) {
+            this.user = data.user;
+            localStorage.setItem(this.USER_STORAGE_KEY, JSON.stringify(this.user));
+            this.updateUserUI();
+            showToast(isRegisterMode ? 'Kayıt başarılı, hoş geldiniz!' : 'Giriş başarılı!', 'success');
+            closeAuth();
+            this.fetchUserWords();
+          } else {
+            if (errorMsg) {
+              errorMsg.textContent = data.error || 'İşlem başarısız oldu.';
+              errorMsg.classList.remove('hidden');
+            }
+          }
+        } catch (err) {
+          // Çevrimdışı ya da API erişilemez ise fallback session
+          this.user = { id: 1, username: username };
+          localStorage.setItem(this.USER_STORAGE_KEY, JSON.stringify(this.user));
+          this.updateUserUI();
+          showToast('Yerel oturum açıldı.', 'success');
+          closeAuth();
+        }
+      });
+    }
+  },
+
+  async fetchUserWords() {
+    if (!this.user || !this.user.id) return;
+    try {
+      const resp = await fetch(`/api/words?user_id=${this.user.id}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.success && Array.isArray(data.words) && data.words.length > 0) {
+          const formatted = data.words.map((w, idx) => ({
+            id: w.id ? String(w.id) : 'word_' + idx,
+            en: w.english || w.en,
+            tr: w.turkish || w.tr,
+            ipa: w.pronunciation || w.ipa || '',
+            wrongCount: 0
+          }));
+          WordStore.saveWords(formatted);
+        }
+      }
+    } catch (e) {
+      console.warn('Backend words fetch skipped:', e);
+    }
+  },
+
+  async syncWordsToBackend(words) {
+    if (!this.user || !this.user.id) return;
+    try {
+      const payload = {
+        user_id: this.user.id,
+        words: words.map(w => ({
+          english: w.en,
+          turkish: w.tr,
+          pronunciation: w.ipa || ''
+        }))
+      };
+      await fetch('/api/words/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (e) {
+      console.warn('Backend words sync skipped:', e);
+    }
+  },
+
+  async recordStatToBackend(gameType, score, wrongWords = []) {
+    if (!this.user || !this.user.id) return;
+    try {
+      await fetch('/api/statistics/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: this.user.id,
+          game_type: gameType,
+          score: score,
+          wrong_words: wrongWords
+        })
+      });
+    } catch (e) {
+      console.warn('Backend stat update skipped:', e);
+    }
+  }
+};
+
 // Başlangıç Kurulumu
 document.addEventListener('DOMContentLoaded', () => {
   AudioService.init();
+  AuthStore.init();
   setupModals();
   updateHeaderBadges();
 

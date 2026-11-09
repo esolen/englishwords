@@ -84,6 +84,12 @@
           <span class="hidden md:inline">Kelime Yönetimi</span>
           <span id="total-words-badge" class="bg-brand-800/80 px-2 py-0.5 rounded text-xs font-mono">20</span>
         </button>
+
+        <!-- Kullanıcı Giriş / Profil Butonu -->
+        <button id="user-auth-btn" class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition text-xs sm:text-sm font-medium">
+          <i data-lucide="user" class="w-4 h-4 text-brand-400" id="user-auth-icon"></i>
+          <span id="user-auth-label">Giriş Yap</span>
+        </button>
       </div>
     </div>
   </header>
@@ -542,6 +548,53 @@
           Kapat
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- Kullanıcı Giriş / Kayıt Modalı -->
+  <div id="auth-modal" class="modal-backdrop hidden">
+    <div class="modal-container max-w-md flex flex-col p-6">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center text-white">
+            <i data-lucide="user-check" class="w-4 h-4"></i>
+          </div>
+          <h3 id="auth-modal-title" class="font-display font-bold text-lg text-white">Giriş Yap</h3>
+        </div>
+        <button id="close-auth-modal-btn" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Giriş / Kayıt Durumu Göstergesi (Aktif kullanıcı varsa) -->
+      <div id="auth-logged-in-panel" class="hidden space-y-4 pt-4">
+        <p class="text-sm text-slate-300">Giriş yapılmış hesap: <strong id="logged-in-username" class="text-brand-400 font-semibold"></strong></p>
+        <p class="text-xs text-slate-400 leading-relaxed">Eklediğiniz kelimeler ve oyun istatistikleriniz Neon veritabanında hesabınıza kaydedilmektedir.</p>
+        <button id="auth-logout-btn" class="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-sm transition">
+          Çıkış Yap
+        </button>
+      </div>
+
+      <!-- Giriş / Kayıt Formu -->
+      <form id="auth-form" class="space-y-4 pt-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Kullanıcı Adı</label>
+          <input type="text" id="auth-username-input" required minlength="3" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="ornek_kullanici">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">Şifre</label>
+          <input type="password" id="auth-password-input" required minlength="4" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-brand-500" placeholder="••••••••">
+        </div>
+        <div id="auth-error-msg" class="text-xs text-rose-400 hidden"></div>
+        <button type="submit" id="auth-submit-btn" class="w-full py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm transition shadow-lg shadow-brand-600/30">
+          Giriş Yap
+        </button>
+        <div class="text-center pt-2">
+          <button type="button" id="auth-toggle-mode-btn" class="text-xs text-brand-400 hover:underline">
+            Hesabınız yok mu? Hemen Kayıt Olun
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 
