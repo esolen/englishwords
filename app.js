@@ -969,14 +969,14 @@ class DifficultWordsGame {
 
     if (this.words.length === 0) {
       stage.innerHTML = `
-        <div class="text-center p-8 max-w-md">
-          <div class="w-16 h-16 rounded-2xl bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center mb-4">
-            <i data-lucide="check-circle-2" class="w-8 h-8"></i>
+        <div class="text-center p-8 max-w-md animate-pop">
+          <div class="w-20 h-20 rounded-3xl bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center mb-4 border border-emerald-500/30 shadow-lg shadow-emerald-500/20">
+            <i data-lucide="party-popper" class="w-10 h-10"></i>
           </div>
-          <h3 class="text-xl font-bold font-display text-white mb-2">Harika! Zorlu Kelime Yok</h3>
-          <p class="text-slate-400 text-sm mb-6">Oyunlarda yanlış yaptığın kelimeler burada tekrar çalışabilmen için otomatik toplanır. Şu an listen temiz!</p>
-          <button onclick="closeGame()" class="px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-medium text-sm transition">
-            Oyunlara Dön
+          <h3 class="text-2xl font-bold font-display text-white mb-2">Harika! Tüm zorlu kelimeleri öğrendiniz. 🎉</h3>
+          <p class="text-slate-400 text-sm mb-6">Zorlu kelimeler havuzunuzdaki tüm kelimeleri başarıyla tamamladınız. Artık yeni oyunlar oynayarak kelime dağarcığınızı pekiştirebilirsiniz.</p>
+          <button onclick="closeGame()" class="px-6 py-3 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-bold text-sm shadow-lg shadow-brand-600/30 transition transform active:scale-95">
+            Oyunlar Menüsüne Dön
           </button>
         </div>
       `;
@@ -1002,9 +1002,15 @@ class DifficultWordsGame {
         </div>
 
         <!-- 3D Kırmızı Kart -->
-        <div class="flashcard-wrapper ${this.isFlipped ? 'flipped' : ''}" id="diff-card-element">
+        <div class="flashcard-wrapper transition-all duration-300 ${this.isFlipped ? 'flipped' : ''}" id="diff-card-element">
           <div class="flashcard-inner">
-            <div class="flashcard-face bg-gradient-to-br from-slate-900 via-rose-950/40 to-slate-900 border-rose-500/40">
+            <div class="flashcard-face bg-gradient-to-br from-slate-900 via-rose-950/40 to-slate-900 border-rose-500/40 relative">
+              <!-- Kart Üzerinde Hızlı Öğrendim Rozet Butonu -->
+              <button id="diff-card-quick-learn-btn" class="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 text-xs font-semibold flex items-center gap-1.5 transition shadow-md z-10" title="Zorlu listesinden hemen çıkar">
+                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                <span>Öğrendim</span>
+              </button>
+
               <span class="text-xs uppercase tracking-widest text-rose-400 font-semibold mb-2">İngilizce</span>
               <h2 class="text-3xl sm:text-4xl font-extrabold text-white mb-2 font-display">${word.en}</h2>
               <p class="text-base font-mono text-slate-400 mb-6">${word.ipa ? `[${word.ipa}]` : ''}</p>
@@ -1017,7 +1023,11 @@ class DifficultWordsGame {
               </div>
             </div>
 
-            <div class="flashcard-face bg-gradient-to-br from-rose-950 via-rose-900 to-red-900 border-rose-400/60" style="transform: rotateY(180deg)">
+            <div class="flashcard-face bg-gradient-to-br from-rose-950 via-rose-900 to-red-900 border-rose-400/60 relative" style="transform: rotateY(180deg)">
+              <button id="diff-card-back-quick-learn-btn" class="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-400/40 text-xs font-semibold flex items-center gap-1.5 transition shadow-md z-10" title="Zorlu listesinden hemen çıkar">
+                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                <span>Öğrendim</span>
+              </button>
               <span class="text-xs uppercase tracking-widest text-rose-200 font-semibold mb-2">Türkçe Anlamı</span>
               <h2 class="text-3xl sm:text-4xl font-extrabold text-white mb-6 font-display">${word.tr}</h2>
               <span class="text-xs text-rose-200">Geri dönmek için tıkla</span>
@@ -1031,8 +1041,8 @@ class DifficultWordsGame {
             <i data-lucide="chevron-left" class="w-4 h-4"></i> Önceki
           </button>
 
-          <button id="diff-mastered-btn" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold shadow-lg shadow-emerald-600/30 transition flex items-center gap-2">
-            <i data-lucide="check-check" class="w-4 h-4"></i> Artık Öğrendim! (Listeden Çıkar)
+          <button id="diff-mastered-btn" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold shadow-lg shadow-emerald-600/30 transition flex items-center gap-2 transform active:scale-95">
+            <i data-lucide="check" class="w-4 h-4"></i> Öğrendim / Listeden Çıkar
           </button>
 
           <button id="diff-next-btn" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition border border-slate-700 flex items-center gap-1.5" ${this.currentIndex === this.words.length - 1 ? 'disabled style="opacity: 0.5"' : ''}>
@@ -1052,10 +1062,12 @@ class DifficultWordsGame {
     const prevBtn = document.getElementById('diff-prev-btn');
     const nextBtn = document.getElementById('diff-next-btn');
     const masteredBtn = document.getElementById('diff-mastered-btn');
+    const quickLearnBtn = document.getElementById('diff-card-quick-learn-btn');
+    const quickLearnBackBtn = document.getElementById('diff-card-back-quick-learn-btn');
 
     if (card) {
       card.addEventListener('click', (e) => {
-        if (e.target.closest('#diff-listen-btn')) return;
+        if (e.target.closest('#diff-listen-btn') || e.target.closest('#diff-card-quick-learn-btn') || e.target.closest('#diff-card-back-quick-learn-btn')) return;
         this.isFlipped = !this.isFlipped;
         card.classList.toggle('flipped', this.isFlipped);
         AudioService.playSfx('click');
@@ -1087,15 +1099,34 @@ class DifficultWordsGame {
       });
     }
 
-    if (masteredBtn) {
-      masteredBtn.addEventListener('click', () => {
-        WordStore.clearMistakes(word.id);
-        AudioService.playSfx('win');
-        showToast(`"${word.en}" zorlu kelimelerden temizlendi!`, 'success');
-        updateHeaderBadges();
+    const handleLearnWord = async (e) => {
+      if (e) e.stopPropagation();
+      // 1. Şık kaybolma efekti (fade-out animasyonu)
+      if (card) {
+        card.style.opacity = '0';
+        card.style.transform = 'scale(0.9)';
+      }
+
+      AudioService.playSfx('win');
+      // 2. Neon PostgreSQL'den ve yerel durumdan anlık sil
+      WordStore.clearMistakes(word.id);
+      showToast(`"${word.en}" zorlu kelimelerden silindi! 🎉`, 'success');
+      updateHeaderBadges();
+
+      setTimeout(() => {
         this.isFlipped = false;
         this.render();
-      });
+      }, 350);
+    };
+
+    if (masteredBtn) {
+      masteredBtn.addEventListener('click', handleLearnWord);
+    }
+    if (quickLearnBtn) {
+      quickLearnBtn.addEventListener('click', handleLearnWord);
+    }
+    if (quickLearnBackBtn) {
+      quickLearnBackBtn.addEventListener('click', handleLearnWord);
     }
   }
 
@@ -3996,15 +4027,26 @@ const AuthStore = {
   async syncWrongWord(wordEn, action = 'add') {
     if (!this.user || !this.user.id || !wordEn) return;
     try {
-      await fetch('/api/words/wrong', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: this.user.id,
-          word: wordEn,
-          action: action
-        })
-      });
+      if (action === 'remove') {
+        await fetch('/api/statistics/remove-wrong', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: this.user.id,
+            word: wordEn
+          })
+        });
+      } else {
+        await fetch('/api/words/wrong', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: this.user.id,
+            word: wordEn,
+            action: action
+          })
+        });
+      }
     } catch (e) {
       console.warn('Sync wrong word failed:', e);
     }
