@@ -293,7 +293,7 @@ function updateHeaderBadges() {
   renderWordsTable();
 }
 
-// 6. Veritabanı Yönetimi Tablo Render
+// 6. Veritabanı Yönetimi Tablo Render (Debounced & Sayfalanmış / Performanslı)
 function renderWordsTable(filterText = '') {
   const tbody = document.getElementById('words-table-body');
   const countSpan = document.getElementById('modal-table-word-count');
@@ -312,7 +312,11 @@ function renderWordsTable(filterText = '') {
     return;
   }
 
-  tbody.innerHTML = filtered.map(w => {
+  // 5000+ kelimede DOM kasmaması için ilk 100 kelimeyi hemen bas (Sanal/Pencereli Liste)
+  const displayLimit = 100;
+  const sliced = filtered.slice(0, displayLimit);
+
+  tbody.innerHTML = sliced.map(w => {
     const isDiff = (w.wrongCount || 0) >= WordStore.DIFFICULT_THRESHOLD;
     return `
       <tr class="hover:bg-slate-800/50 transition">
@@ -336,7 +340,7 @@ function renderWordsTable(filterText = '') {
         </td>
       </tr>
     `;
-  }).join('');
+  }).join('') + (filtered.length > displayLimit ? `<tr><td colspan="5" class="p-2.5 text-center text-slate-400 text-[11px] bg-slate-900/80 italic font-mono">+${filtered.length - displayLimit} kelime daha mevcut. Arama yaparak spesifik kelimelere ulaşabilirsiniz.</td></tr>` : '');
 
   if (window.lucide) window.lucide.createIcons();
 }
@@ -394,8 +398,12 @@ function setupModals() {
   }
 
   if (filterInput) {
+    let filterDebounce = null;
     filterInput.addEventListener('input', (e) => {
-      renderWordsTable(e.target.value);
+      clearTimeout(filterDebounce);
+      filterDebounce = setTimeout(() => {
+        renderWordsTable(e.target.value);
+      }, 300);
     });
   }
 
@@ -601,12 +609,31 @@ function shuffleArray(array) {
   return arr;
 }
 
+// Yardımcı fonksiyon: 5000+ kelimelik büyük havuzdan O(1) maliyetle N adet rastgele örnekleme (Random Sampling)
+function getRandomSample(array, count) {
+  if (!Array.isArray(array) || array.length <= count) {
+    return shuffleArray(array || []);
+  }
+  const result = [];
+  const taken = new Set();
+  const len = array.length;
+  while (result.length < count && taken.size < len) {
+    const idx = Math.floor(Math.random() * len);
+    if (!taken.has(idx)) {
+      taken.add(idx);
+      result.push(array[idx]);
+    }
+  }
+  return result;
+}
+
 // ============================================================================
 // MODÜL 1: KELİME KARTLARI (FLASHCARDS)
 // ============================================================================
 class FlashcardsGame {
   constructor() {
-    this.words = shuffleArray(WordStore.getWords());
+    // 5000+ kelimede anlık yanıt için rastgele 20 kelimelik çalışma paketi
+    this.words = getRandomSample(WordStore.getWords(), 20);
     this.currentIndex = 0;
     this.isFlipped = false;
     this.knownCount = 0;
@@ -794,8 +821,9 @@ class FlashcardsGame {
 // ============================================================================
 class MultipleChoiceGame {
   constructor() {
-    this.words = shuffleArray(WordStore.getWords());
     this.allWords = WordStore.getWords();
+    // 5000+ kelimede anlık yanıt için rastgele 15 soru paketi
+    this.words = getRandomSample(this.allWords, 15);
     this.currentIndex = 0;
     this.score = 0;
     this.streak = 0;
@@ -1296,9 +1324,8 @@ class TrueFalseGame {
 // ============================================================================
 class MatchingGame {
   constructor() {
-    const all = shuffleArray(WordStore.getWords());
-    // 6 kelime seç (6 İngilizce, 6 Türkçe olmak üzere 12 kart)
-    this.selectedWords = all.slice(0, Math.min(6, all.length));
+    // 5000+ kelimede anlık yanıt için rastgele 6 kelimelik eşleştirme çifti
+    this.selectedWords = getRandomSample(WordStore.getWords(), 6);
     this.enCards = [];
     this.trCards = [];
     this.activeMatches = []; // Tamamlanan eşleşmeler: [{ en, tr }]
