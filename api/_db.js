@@ -5,21 +5,26 @@ try {
   // pg may not be installed locally in offline/test environment, but will be installed on Vercel
 }
 
-let pool = null;
+// Vercel Serverless Global Connection Pool Caching
+let cachedPool = global.__neon_pool || null;
 
 function getPool() {
   if (!Pool) return null;
-  if (!pool) {
+  if (!cachedPool) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) {
       return null;
     }
-    pool = new Pool({
+    cachedPool = new Pool({
       connectionString,
-      ssl: { rejectUnauthorized: false }
+      ssl: { rejectUnauthorized: false },
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000
     });
+    global.__neon_pool = cachedPool;
   }
-  return pool;
+  return cachedPool;
 }
 
 let migrated = false;
