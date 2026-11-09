@@ -1801,14 +1801,12 @@ class HandwritingGame {
 
     // Gerçek ekrandaki CSS boyutlarını al
     const rect = this.canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
 
-    // Koordinat uyuşmazlığını önlemek için iç çözünürlüğü tam pixel değerlerine sabitle
-    this.canvas.width = Math.round(rect.width * dpr);
-    this.canvas.height = Math.round(rect.height * dpr);
+    // Çizim koordinatları ile canvas iç çözünürlüğünü 1:1 tam eşle (kaymayı önle)
+    this.canvas.width = Math.round(rect.width);
+    this.canvas.height = Math.round(rect.height);
 
     this.ctx = this.canvas.getContext('2d');
-    this.ctx.scale(dpr, dpr);
 
     // Modern akıllı tahta arka planı oluştur (Hafif koyu mat slate zemin)
     this.clearCanvas();
@@ -1826,9 +1824,8 @@ class HandwritingGame {
 
   clearCanvas() {
     if (!this.ctx || !this.canvas) return;
-    const dpr = window.devicePixelRatio || 1;
-    const width = this.canvas.width / dpr;
-    const height = this.canvas.height / dpr;
+    const width = this.canvas.width;
+    const height = this.canvas.height;
 
     // Koyu mat tahta arka planı (#0f172a)
     this.ctx.fillStyle = '#0f172a';
@@ -1860,14 +1857,14 @@ class HandwritingGame {
     const nextBtn = document.getElementById('hw-nav-next-btn');
     const hintBtn = document.getElementById('hw-hint-btn');
 
-    // 1. Kesin Koordinat Hizalaması Formülü:
-    // x = (event.clientX - rect.left) * (canvas.width / rect.width)
-    // y = (event.clientY - rect.top) * (canvas.height / rect.height)
+    // 1. Kesin Koordinat Hizalaması Formülü (Exact Canvas Mapping):
+    // const rect = canvas.getBoundingClientRect();
+    // const x = (event.clientX - rect.left) * (canvas.width / rect.width);
+    // const y = (event.clientY - rect.top) * (canvas.height / rect.height);
     const getPos = (e) => {
       const rect = this.canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      const x = ((e.clientX - rect.left) / rect.width) * (this.canvas.width / dpr);
-      const y = ((e.clientY - rect.top) / rect.height) * (this.canvas.height / dpr);
+      const x = (e.clientX - rect.left) * (this.canvas.width / rect.width);
+      const y = (e.clientY - rect.top) * (this.canvas.height / rect.height);
       return { x, y };
     };
 
@@ -4367,13 +4364,32 @@ function registerPwaServiceWorker() {
   }
 }
 
-// Başlangıç Kurulumu
+// Başlangıç Kurulumu (iOS Safari ve PWA Güvenli Başlatma)
 document.addEventListener('DOMContentLoaded', () => {
-  registerPwaServiceWorker();
-  AudioService.init();
-  AuthStore.init();
-  setupModals();
-  updateHeaderBadges();
+  try {
+    registerPwaServiceWorker();
+  } catch (err) {
+    console.warn('PWA ServiceWorker kayıt hatası yakalandı (non-fatal):', err);
+  }
+
+  try {
+    AudioService.init();
+  } catch (err) {
+    console.warn('AudioService init uyarısı:', err);
+  }
+
+  try {
+    AuthStore.init();
+  } catch (err) {
+    console.warn('AuthStore init uyarısı:', err);
+  }
+
+  try {
+    setupModals();
+    updateHeaderBadges();
+  } catch (err) {
+    console.warn('UI setup uyarısı:', err);
+  }
 
   document.querySelectorAll('.game-card[data-game]').forEach(card => {
     card.addEventListener('click', () => {
