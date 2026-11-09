@@ -766,34 +766,48 @@ class FlashcardsGame {
         <!-- 3D Flip Kart -->
         <div class="flashcard-wrapper ${this.isFlipped ? 'flipped' : ''}" id="flashcard-element">
           <div class="flashcard-inner">
-            <!-- Ön Yüz: İngilizce & Okunuş -->
-            <div class="flashcard-face flashcard-front relative">
-              <!-- Yıldız / Bookmark Butonu -->
-              <button id="fc-star-btn" class="absolute top-4 right-4 p-2 rounded-xl transition ${WordStore.isInStudyList(word.en) ? 'text-amber-400 bg-amber-500/20 border border-amber-500/40' : 'text-slate-500 hover:text-amber-400 bg-slate-800/80 border border-slate-700'}" title="Özel Listeye Ekle/Çıkar">
-                <i data-lucide="star" class="w-5 h-5 ${WordStore.isInStudyList(word.en) ? 'fill-amber-400' : ''}"></i>
-              </button>
-
-              <span class="text-xs uppercase tracking-widest text-brand-400 font-semibold mb-2">İngilizce</span>
-              <h2 class="text-3xl sm:text-4xl font-extrabold text-white mb-2 font-display">${word.en}</h2>
-              <p class="text-base font-mono text-slate-400 mb-6">${word.ipa ? `[${word.ipa}]` : ''}</p>
-
-              <div class="flex items-center gap-3">
-                <button id="card-listen-btn" class="p-3 rounded-full bg-brand-500/20 hover:bg-brand-500/30 text-brand-400 border border-brand-500/40 transition" title="Sesli Oku">
-                  <i data-lucide="volume-2" class="w-5 h-5"></i>
+            <!-- Ön Yüz: İngilizce & Okunuş (Flexbox Üst, Orta, Alt Dengeli Dağılım) -->
+            <div class="flashcard-face flashcard-front card-front flex flex-col justify-between items-center p-5 sm:p-6 w-full h-full relative">
+              <div class="w-full flex items-center justify-between">
+                <span class="text-xs uppercase tracking-widest text-brand-400 font-bold">İngilizce</span>
+                <!-- Yıldız / Bookmark Butonu -->
+                <button id="fc-star-btn" class="p-1.5 rounded-xl transition ${WordStore.isInStudyList(word.en) ? 'text-amber-400 bg-amber-500/20 border border-amber-500/40' : 'text-slate-500 hover:text-amber-400 bg-slate-800/80 border border-slate-700'}" title="Özel Listeye Ekle/Çıkar">
+                  <i data-lucide="star" class="w-4 h-4 ${WordStore.isInStudyList(word.en) ? 'fill-amber-400' : ''}"></i>
                 </button>
-                <span class="text-xs text-slate-400 flex items-center gap-1">
+              </div>
+
+              <div class="my-auto text-center py-2">
+                <h2 class="text-2xl sm:text-4xl font-extrabold text-white mb-1.5 font-display tracking-tight">${word.en}</h2>
+                <p class="text-sm sm:text-base font-mono text-slate-400">${word.ipa ? `[${word.ipa}]` : ''}</p>
+              </div>
+
+              <div class="w-full pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                <button id="card-listen-btn" class="px-3 py-1.5 rounded-lg bg-brand-500/20 hover:bg-brand-500/30 text-brand-300 border border-brand-500/40 transition flex items-center gap-1.5 font-medium" title="Sesli Oku">
+                  <i data-lucide="volume-2" class="w-4 h-4 text-brand-400"></i> Dinle
+                </button>
+                <span class="flex items-center gap-1 text-slate-400">
                   <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i> Çevirmek için tıkla
                 </span>
               </div>
             </div>
 
-            <!-- Arka Yüz: Türkçe Anlam -->
-            <div class="flashcard-face flashcard-back">
-              <span class="text-xs uppercase tracking-widest text-blue-200 font-semibold mb-2">Türkçe Karşılığı</span>
-              <h2 class="text-3xl sm:text-4xl font-extrabold text-white mb-6 font-display">${word.tr}</h2>
-              <span class="text-xs text-blue-100 flex items-center gap-1">
-                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Geri çevirmek için tıkla
-              </span>
+            <!-- Arka Yüz: Türkçe Anlam (Ön Yüz İle Birebir Kenetli ve Hizalı) -->
+            <div class="flashcard-face flashcard-back card-back flex flex-col justify-between items-center p-5 sm:p-6 w-full h-full relative" style="transform: rotateY(180deg); -webkit-transform: rotateY(180deg);">
+              <div class="w-full flex items-center justify-between">
+                <span class="text-xs uppercase tracking-widest text-blue-200 font-bold">Türkçe Karşılığı</span>
+                <span class="text-[11px] px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200 border border-blue-400/30">Anlam</span>
+              </div>
+
+              <div class="my-auto text-center py-4 px-2">
+                <h2 class="text-xl sm:text-3xl font-extrabold text-white font-display leading-tight">${word.tr}</h2>
+              </div>
+
+              <div class="w-full pt-3 border-t border-blue-400/20 flex items-center justify-between text-xs text-blue-100">
+                <span class="flex items-center gap-1 text-blue-200">
+                  <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Geri çevir
+                </span>
+                <span class="text-[11px] text-blue-200/80">Hafıza Kartı</span>
+              </div>
             </div>
           </div>
         </div>
