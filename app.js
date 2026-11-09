@@ -1613,51 +1613,68 @@ class HandwritingGame {
     stage.innerHTML = `
       <div class="w-full max-w-xl flex flex-col items-center">
         <!-- İlerleme -->
-        <div class="w-full flex items-center justify-between text-xs text-slate-400 mb-3 px-2">
+        <div class="w-full flex items-center justify-between text-xs text-slate-400 mb-2 px-2">
           <span>Kelime ${this.currentIndex + 1} / ${this.words.length}</span>
-          <span class="text-amber-400 font-medium flex items-center gap-1">
-            <i data-lucide="pen-tool" class="w-3.5 h-3.5"></i> Yapay Zeka OCR Destekli
+          <span class="text-cyan-400 font-medium flex items-center gap-1.5">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5 text-cyan-400"></i> Akıllı Yazı Tahtası
           </span>
         </div>
-        <div class="w-full h-1.5 bg-slate-700 rounded-full mb-6 overflow-hidden">
-          <div class="h-full bg-amber-500 transition-all duration-300" style="width: ${((this.currentIndex + 1) / this.words.length) * 100}%"></div>
+        <div class="w-full h-1.5 bg-slate-800 rounded-full mb-5 overflow-hidden border border-slate-700/60">
+          <div class="h-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-300" style="width: ${((this.currentIndex + 1) / this.words.length) * 100}%"></div>
         </div>
 
         <!-- Türkçe İpucu Kutusu -->
-        <div class="w-full bg-slate-800/80 border border-slate-700 rounded-2xl p-5 text-center shadow-xl mb-4">
-          <span class="text-xs uppercase tracking-widest text-amber-400 font-semibold mb-1 block">Türkçe Anlamı</span>
+        <div class="w-full bg-slate-800/80 backdrop-blur-md border border-slate-700 rounded-2xl p-5 text-center shadow-xl mb-4">
+          <span class="text-xs uppercase tracking-widest text-cyan-400 font-semibold mb-1 block">Türkçe Anlamı</span>
           <h2 class="text-2xl sm:text-3xl font-extrabold text-white mb-1 font-display">${word.tr}</h2>
-          <p class="text-xs text-slate-400">Tablet kalemiyle, parmağınızla veya fareyle beyaz alana İngilizcesini yazın.</p>
+          <p class="text-xs text-slate-400">Tablet kalemiyle, parmağınızla veya fareyle dijital yazı tahtasına İngilizcesini yazın.</p>
         </div>
 
-        <!-- Çizim Canvas Kapsayıcısı -->
-        <div class="w-full handwriting-canvas-container relative mb-4 border-2 border-slate-600 focus-within:border-amber-500 transition">
+        <!-- Modern Çizim Canvas Kapsayıcısı (Smart Slate) -->
+        <div class="w-full handwriting-canvas-container relative mb-4">
           <canvas id="handwriting-canvas" class="w-full h-64 sm:h-72"></canvas>
 
           <!-- OCR Yükleniyor Katmanı (Loading) -->
           <div id="ocr-loading-overlay" class="ocr-loading-overlay hidden">
-            <div class="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+            <div class="w-10 h-10 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
             <span class="text-white font-bold text-sm tracking-wide">Yazınız Okunuyor...</span>
-            <span class="text-slate-400 text-xs font-mono">Tesseract.js OCR Analizi</span>
+            <span class="text-cyan-300/80 text-xs font-mono">Tesseract.js OCR Analizi</span>
           </div>
 
-          <!-- Kılavuz Çizgisi -->
-          <div class="absolute inset-x-4 bottom-14 border-b border-dashed border-slate-300 pointer-events-none opacity-60"></div>
+          <!-- Tahta Kılavuz Çizgileri (Defter Çizgisi Estetiği) -->
+          <div class="absolute inset-x-6 top-1/3 border-b border-dashed border-slate-700/40 pointer-events-none"></div>
+          <div class="absolute inset-x-6 top-2/3 border-b border-dashed border-cyan-500/20 pointer-events-none"></div>
         </div>
 
-        <!-- Kontrol Butonları -->
-        <div class="w-full grid grid-cols-2 gap-3">
-          <button id="clear-canvas-btn" class="py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-sm border border-slate-700 transition flex items-center justify-center gap-2">
-            <i data-lucide="eraser" class="w-4 h-4"></i> Temizle
-          </button>
-          <button id="ocr-check-btn" class="py-3 px-4 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm shadow-lg shadow-amber-600/30 transition flex items-center justify-center gap-2">
-            <i data-lucide="check-circle" class="w-4 h-4"></i> Kontrol Et
-          </button>
+        <!-- Modernize Edilmiş Buton Çubuğu (Geri, Temizle, İpucu, Kontrol Et, İleri) -->
+        <div class="w-full flex flex-wrap items-center justify-between gap-2">
+          <!-- Sol Butonlar: Geri & Temizle -->
+          <div class="flex items-center gap-1.5 sm:gap-2">
+            <button id="hw-nav-prev-btn" class="py-2.5 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white font-medium text-xs border border-slate-700 transition flex items-center gap-1 shadow-sm" ${this.currentIndex === 0 ? 'disabled style="opacity: 0.4"' : ''}>
+              <i data-lucide="chevron-left" class="w-4 h-4"></i> Geri
+            </button>
+            <button id="clear-canvas-btn" class="py-2.5 px-3.5 rounded-xl bg-slate-800/90 hover:bg-rose-900/40 text-slate-300 hover:text-rose-300 font-medium text-xs border border-slate-700 hover:border-rose-500/50 transition flex items-center gap-1.5 shadow-sm">
+              <i data-lucide="eraser" class="w-3.5 h-3.5"></i> Temizle
+            </button>
+          </div>
+
+          <!-- Sağ Butonlar: İpucu, Kontrol Et, İleri -->
+          <div class="flex items-center gap-1.5 sm:gap-2">
+            <button id="hw-hint-btn" class="py-2.5 px-3 rounded-xl bg-slate-800/90 hover:bg-amber-900/40 text-amber-300 font-medium text-xs border border-slate-700 hover:border-amber-500/50 transition flex items-center gap-1 shadow-sm" title="İlk harf ipucu">
+              <i data-lucide="lightbulb" class="w-3.5 h-3.5"></i> İpucu
+            </button>
+            <button id="ocr-check-btn" class="py-2.5 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-cyan-500/25 transition transform active:scale-95 flex items-center gap-1.5">
+              <i data-lucide="check-circle-2" class="w-4 h-4"></i> Kontrol Et
+            </button>
+            <button id="hw-nav-next-btn" class="py-2.5 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white font-medium text-xs border border-slate-700 transition flex items-center gap-1 shadow-sm" ${this.currentIndex === this.words.length - 1 ? 'disabled style="opacity: 0.4"' : ''}>
+              İleri <i data-lucide="chevron-right" class="w-4 h-4"></i>
+            </button>
+          </div>
         </div>
 
         <!-- Tanınan Metin Geri Bildirim Kutusu -->
         <div id="ocr-result-badge" class="w-full mt-3 p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-center text-xs text-slate-400 min-h-[42px] flex items-center justify-center">
-          <span>Yazınızı yazdıktan sonra "Kontrol Et" butonuna basınız.</span>
+          <span>Yazınızı tahtaya yazdıktan sonra "Kontrol Et" butonuna basınız.</span>
         </div>
       </div>
     `;
@@ -1671,34 +1688,56 @@ class HandwritingGame {
     this.canvas = document.getElementById('handwriting-canvas');
     if (!this.canvas) return;
 
-    // High-DPI Canvas Ölçeklendirme
+    // Gerçek ekrandaki CSS boyutlarını al
     const rect = this.canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = rect.width * dpr;
-    this.canvas.height = rect.height * dpr;
+
+    // Koordinat uyuşmazlığını önlemek için iç çözünürlüğü tam pixel değerlerine sabitle
+    this.canvas.width = Math.round(rect.width * dpr);
+    this.canvas.height = Math.round(rect.height * dpr);
 
     this.ctx = this.canvas.getContext('2d');
     this.ctx.scale(dpr, dpr);
 
-    // Beyaz zemin oluştur (OCR optimizasyonu için)
+    // Modern akıllı tahta arka planı oluştur (Hafif koyu mat slate zemin)
     this.clearCanvas();
 
-    // Kalem / Fırça Özellikleri
-    this.ctx.strokeStyle = '#000000';
-    this.ctx.lineWidth = 8;
+    // Kalem / Fırça Özellikleri: Canlı neon cyan rengi, 3.5px pürüzsüz uç
+    this.ctx.strokeStyle = '#38bdf8'; // Parlak neon cyan
+    this.ctx.lineWidth = 3.5;
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
 
     this.isDrawing = false;
     this.hasDrawn = false;
+    this.points = [];
   }
 
   clearCanvas() {
     if (!this.ctx || !this.canvas) return;
-    const rect = this.canvas.getBoundingClientRect();
-    this.ctx.fillStyle = '#ffffff';
-    this.ctx.fillRect(0, 0, rect.width, rect.height);
+    const dpr = window.devicePixelRatio || 1;
+    const width = this.canvas.width / dpr;
+    const height = this.canvas.height / dpr;
+
+    // Koyu mat tahta arka planı (#0f172a)
+    this.ctx.fillStyle = '#0f172a';
+    this.ctx.fillRect(0, 0, width, height);
+
+    // İnce Kılavuz Izgarası (Defter/Tablet Çizgileri)
+    this.ctx.save();
+    this.ctx.strokeStyle = 'rgba(51, 65, 85, 0.4)';
+    this.ctx.lineWidth = 1;
+    const step = 32;
+    for (let y = step; y < height; y += step) {
+      this.ctx.beginPath();
+      this.ctx.moveTo(12, y);
+      this.ctx.lineTo(width - 12, y);
+      this.ctx.stroke();
+    }
+    this.ctx.restore();
+
     this.hasDrawn = false;
+    this.points = [];
   }
 
   bindEvents(word) {
@@ -1706,36 +1745,66 @@ class HandwritingGame {
 
     const clearBtn = document.getElementById('clear-canvas-btn');
     const checkBtn = document.getElementById('ocr-check-btn');
+    const prevBtn = document.getElementById('hw-nav-prev-btn');
+    const nextBtn = document.getElementById('hw-nav-next-btn');
+    const hintBtn = document.getElementById('hw-hint-btn');
 
+    // 1. Kesin Koordinat Hizalaması Formülü:
+    // x = (event.clientX - rect.left) * (canvas.width / rect.width)
+    // y = (event.clientY - rect.top) * (canvas.height / rect.height)
     const getPos = (e) => {
       const rect = this.canvas.getBoundingClientRect();
-      return {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      };
+      const dpr = window.devicePixelRatio || 1;
+      const x = ((e.clientX - rect.left) / rect.width) * (this.canvas.width / dpr);
+      const y = ((e.clientY - rect.top) / rect.height) * (this.canvas.height / dpr);
+      return { x, y };
     };
 
-    // PointerEvents (Tablet Kalemi, Dokunmatik & Fare)
+    // 2. Sıfır Gecikmeli ve İkinci Derece Bezier Eğrisi (quadraticCurveTo) ile Akıcı Çizim
     this.canvas.addEventListener('pointerdown', (e) => {
       if (this.isProcessing) return;
       this.isDrawing = true;
       this.hasDrawn = true;
       this.canvas.setPointerCapture(e.pointerId);
+
       const pos = getPos(e);
+      this.points = [pos];
+
       this.ctx.beginPath();
-      this.ctx.moveTo(pos.x, pos.y);
+      this.ctx.arc(pos.x, pos.y, this.ctx.lineWidth / 2, 0, Math.PI * 2);
+      this.ctx.fillStyle = this.ctx.strokeStyle;
+      this.ctx.fill();
     });
 
     this.canvas.addEventListener('pointermove', (e) => {
       if (!this.isDrawing || this.isProcessing) return;
       const pos = getPos(e);
-      this.ctx.lineTo(pos.x, pos.y);
-      this.ctx.stroke();
+      this.points.push(pos);
+
+      if (this.points.length >= 3) {
+        const p1 = this.points[this.points.length - 2];
+        const p2 = this.points[this.points.length - 1];
+        const midPoint = {
+          x: (p1.x + p2.x) / 2,
+          y: (p1.y + p2.y) / 2
+        };
+
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.points[this.points.length - 3].x, this.points[this.points.length - 3].y);
+        this.ctx.quadraticCurveTo(p1.x, p1.y, midPoint.x, midPoint.y);
+        this.ctx.stroke();
+      } else if (this.points.length === 2) {
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.points[0].x, this.points[0].y);
+        this.ctx.lineTo(this.points[1].x, this.points[1].y);
+        this.ctx.stroke();
+      }
     });
 
     const stopDrawing = (e) => {
       if (this.isDrawing) {
         this.isDrawing = false;
+        this.points = [];
         try {
           this.canvas.releasePointerCapture(e.pointerId);
         } catch (err) {}
@@ -1751,7 +1820,31 @@ class HandwritingGame {
         this.clearCanvas();
         AudioService.playSfx('click');
         const badge = document.getElementById('ocr-result-badge');
-        if (badge) badge.innerHTML = `<span>Canvas temizlendi. Kelimeyi tekrar yazabilirsiniz.</span>`;
+        if (badge) badge.innerHTML = `<span>Tahta temizlendi. Kelimeyi tekrar yazabilirsiniz.</span>`;
+      });
+    }
+
+    if (hintBtn) {
+      hintBtn.addEventListener('click', () => {
+        const firstLetter = word.en.charAt(0).toUpperCase();
+        showToast(`İpucu: Kelime "${firstLetter}" harfi ile başlıyor (${word.en.length} harf).`, 'info');
+        AudioService.playSfx('click');
+      });
+    }
+
+    if (prevBtn && this.currentIndex > 0) {
+      prevBtn.addEventListener('click', () => {
+        this.currentIndex--;
+        AudioService.playSfx('click');
+        this.render();
+      });
+    }
+
+    if (nextBtn && this.currentIndex < this.words.length - 1) {
+      nextBtn.addEventListener('click', () => {
+        this.currentIndex++;
+        AudioService.playSfx('click');
+        this.render();
       });
     }
 
