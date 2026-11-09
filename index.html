@@ -182,8 +182,8 @@
       </div>
     </header>
 
-    <!-- Ana İçerik Kapsayıcısı (Mobil Güvenli Alan pb-24 & w-full px-4) -->
-    <main class="relative z-10 flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-28 sm:pb-24 overflow-x-hidden">
+    <!-- Ana İçerik Kapsayıcısı (Mobil Güvenli Alan pb-24 & w-full px-4, py-3 on mobile) -->
+    <main class="relative z-10 flex-grow max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-8 pb-28 sm:pb-24 overflow-x-hidden">
 
       <!-- Sıfır Kelime Uyarı / Hoş Geldin Kutusu (Kelime Havuzu Boşsa Görünür) -->
       <div id="empty-library-banner" class="hidden mb-6 p-6 rounded-2xl bg-gradient-to-r from-amber-500/10 via-slate-800 to-indigo-950/20 border border-amber-500/30 text-amber-200">
@@ -474,8 +474,8 @@
 
       <!-- Oyun Ekranı Kapsayıcısı (Aktif olduğunda açılır) -->
       <section id="game-play-view" class="hidden">
-        <!-- Oyun Üst Çubuğu -->
-        <div class="flex items-center justify-between mb-4 bg-slate-800/90 backdrop-blur-md p-4 rounded-xl border border-slate-700">
+      <!-- Oyun Üst Çubuğu (Mobilde Kompakt p-2.5) -->
+      <div class="flex items-center justify-between mb-2 sm:mb-4 bg-slate-800/90 backdrop-blur-md p-2.5 sm:p-4 rounded-xl border border-slate-700">
           <div class="flex items-center space-x-3">
             <button id="exit-game-btn" class="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 hover:text-white transition flex items-center gap-1.5 text-xs sm:text-sm font-medium">
               <i data-lucide="arrow-left" class="w-4 h-4"></i>
@@ -506,7 +506,7 @@
         </div>
 
         <!-- Dinamik Oyun Alanı (app.js içinden buraya render edilir) -->
-        <div id="game-stage" class="min-h-[460px] bg-slate-800/40 border border-slate-800 rounded-2xl p-4 sm:p-6 flex flex-col items-center justify-center relative overflow-hidden">
+      <div id="game-stage" class="min-h-[380px] sm:min-h-[460px] bg-slate-800/40 border border-slate-800 rounded-2xl p-2.5 sm:p-6 flex flex-col items-center justify-center relative overflow-hidden">
           <!-- Oyun içeriği buraya yüklenecektir -->
         </div>
       </section>
