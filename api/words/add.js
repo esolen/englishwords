@@ -19,47 +19,53 @@ module.exports = async function handler(req, res) {
     const words = Array.isArray(body.words) ? body.words : [];
 
     if (!userId) {
-      return res.status(400).json({ success: false, error: 'Geçersiz veya eksik user_id.' });
+      return res.status(401).json({ success: false, error: 'Yetkisiz erişim: user_id gereklidir.' });
     }
 
     if (words.length === 0) {
       return res.status(400).json({ success: false, error: 'Eklenecek kelime listesi boş.' });
     }
 
-    let addedCount = 0;
+    // Filtreleme ve temizleme
+    const validWords = [];
     for (const w of words) {
       const english = (w.english || '').trim();
       const turkish = (w.turkish || '').trim();
       const pronunciation = (w.pronunciation || '').trim();
-
       if (english && turkish) {
-        // Upsert or insert if not exists for this user
-        const existing = await pool.query(
-          'SELECT id FROM user_words WHERE user_id = $1 AND LOWER(english) = LOWER($2)',
-          [userId, english]
-        );
-
-        if (existing.rows.length > 0) {
-          await pool.query(
-            'UPDATE user_words SET turkish = $1, pronunciation = $2 WHERE id = $3',
-            [turkish, pronunciation, existing.rows[0].id]
-          );
-        } else {
-          await pool.query(
-            'INSERT INTO user_words (user_id, english, turkish, pronunciation) VALUES ($1, $2, $3, $4)',
-            [userId, english, turkish, pronunciation]
-          );
-        }
-        addedCount++;
+        validWords.push({ english, turkish, pronunciation });
       }
     }
 
+    if (validWords.length === 0) {
+      return res.status(400).json({ success: false, error: 'Geçerli kelime bulunamadı.' });
+    }
+
+    // Toplu ekleme için multi-row parameterized INSERT sorgusu oluşturma
+    // ($1, $2, $3, $4), ($1, $5, $6, $7), ...
+    const valuePlaceholders = [];
+    const values = [userId];
+    let paramCounter = 2;
+
+    for (const w of validWords) {
+      valuePlaceholders.push(`($1, $${paramCounter}, $${paramCounter + 1}, $${paramCounter + 2})`);
+      values.push(w.english, w.turkish, w.pronunciation);
+      paramCounter += 3;
+    }
+
+    const insertQuery = `
+      INSERT INTO user_words (user_id, english, turkish, pronunciation)
+      VALUES ${valuePlaceholders.join(', ')}
+    `;
+
+    await pool.query(insertQuery, values);
+
     return res.status(200).json({
       success: true,
-      addedCount
+      addedCount: validWords.length
     });
   } catch (err) {
-    console.error('Add words error:', err);
-    return res.status(500).json({ success: false, error: 'Kelimeler eklenirken bir hata oluştu.' });
+    console.error('Batch add words error:', err);
+    return res.status(500).json({ success: false, error: 'Kelimeler kaydedilirken bir hata oluştu.' });
   }
 };

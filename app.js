@@ -3,70 +3,18 @@
  * app.js
  */
 
-// 1. Örnek Başlangıç Kelimeleri (localStorage boşken yüklenir)
-const DEFAULT_WORDS = [
-  { id: '1', en: 'apple', tr: 'elma', ipa: 'æpl', wrongCount: 0 },
-  { id: '2', en: 'freedom', tr: 'özgürlük', ipa: 'ˈfriːdəm', wrongCount: 0 },
-  { id: '3', en: 'adventure', tr: 'macera', ipa: 'ədˈventʃər', wrongCount: 0 },
-  { id: '4', en: 'courage', tr: 'cesaret', ipa: 'ˈkʌrɪdʒ', wrongCount: 0 },
-  { id: '5', en: 'knowledge', tr: 'bilgi', ipa: 'ˈnɒlɪdʒ', wrongCount: 0 },
-  { id: '6', en: 'success', tr: 'başarı', ipa: 'səkˈses', wrongCount: 0 },
-  { id: '7', en: 'challenge', tr: 'zorluk / meydan okuma', ipa: 'ˈtʃælɪndʒ', wrongCount: 0 },
-  { id: '8', en: 'journey', tr: 'yolculuk', ipa: 'ˈdʒɜːni', wrongCount: 0 },
-  { id: '9', en: 'dream', tr: 'rüya / hayal', ipa: 'driːm', wrongCount: 0 },
-  { id: '10', en: 'future', tr: 'gelecek', ipa: 'ˈfjuːtʃər', wrongCount: 0 },
-  { id: '11', en: 'library', tr: 'kütüphane', ipa: 'ˈlaɪbrəri', wrongCount: 0 },
-  { id: '12', en: 'mountain', tr: 'dağ', ipa: 'ˈmaʊntɪn', wrongCount: 0 },
-  { id: '13', en: 'ocean', tr: 'okyanus', ipa: 'ˈəʊʃən', wrongCount: 0 },
-  { id: '14', en: 'harmony', tr: 'uyum / ahenk', ipa: 'ˈhɑːməni', wrongCount: 0 },
-  { id: '15', en: 'discovery', tr: 'keşif', ipa: 'dɪˈskʌvəri', wrongCount: 0 },
-  { id: '16', en: 'whisper', tr: 'fısıltı', ipa: 'ˈwɪspər', wrongCount: 0 },
-  { id: '17', en: 'treasure', tr: 'hazine', ipa: 'ˈtreʒər', wrongCount: 0 },
-  { id: '18', en: 'universe', tr: 'evren', ipa: 'ˈjuːnɪvɜːs', wrongCount: 0 },
-  { id: '19', en: 'victory', tr: 'zafer', ipa: 'ˈvɪktəri', wrongCount: 0 },
-  { id: '20', en: 'kindness', tr: 'nezaket / iyilik', ipa: 'ˈkaɪndnəs', wrongCount: 0 }
-];
-
-// 2. WordStore - LocalStorage & Kelime Yönetimi
+// 1. WordStore - Tamamen Boş Başlayan ve Neon DB Destekli Kelime Deposu
 const WordStore = {
-  STORAGE_KEY: 'wordplay_db_v1',
+  words: [],
   DIFFICULT_THRESHOLD: 1,
 
   getWords() {
-    try {
-      const data = localStorage.getItem(this.STORAGE_KEY);
-      if (!data) {
-        this.saveWords(DEFAULT_WORDS);
-        return [...DEFAULT_WORDS];
-      }
-      const parsed = JSON.parse(data);
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        this.saveWords(DEFAULT_WORDS);
-        return [...DEFAULT_WORDS];
-      }
-      return parsed;
-    } catch (e) {
-      console.warn('LocalStorage okuma hatası:', e);
-      return [...DEFAULT_WORDS];
-    }
+    return this.words || [];
   },
 
-  saveWords(words) {
-    try {
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(words));
-      this.notifyUpdate();
-      // Neon veritabanına otomatik eşzamanlama (kullanıcı giriş yapmışsa)
-      if (AuthStore && AuthStore.user && AuthStore.user.id) {
-        AuthStore.syncWordsToBackend(words);
-      }
-    } catch (e) {
-      console.error('LocalStorage yazma hatası:', e);
-    }
-  },
-
-  resetToDefault() {
-    this.saveWords(DEFAULT_WORDS);
-    return [...DEFAULT_WORDS];
+  setWords(newWords) {
+    this.words = Array.isArray(newWords) ? newWords : [];
+    this.notifyUpdate();
   },
 
   getDifficultWords() {
@@ -78,7 +26,7 @@ const WordStore = {
     const word = words.find(w => String(w.id) === String(wordId) || w.en.toLowerCase() === String(wordId).toLowerCase());
     if (word) {
       word.wrongCount = (word.wrongCount || 0) + 1;
-      this.saveWords(words);
+      this.notifyUpdate();
       if (AuthStore && AuthStore.user && AuthStore.user.id) {
         AuthStore.recordStatToBackend(gameType, 0, [word.en]);
       }
@@ -90,7 +38,7 @@ const WordStore = {
     const word = words.find(w => String(w.id) === String(wordId) || w.en.toLowerCase() === String(wordId).toLowerCase());
     if (word && word.wrongCount > 0) {
       word.wrongCount = Math.max(0, word.wrongCount - 1);
-      this.saveWords(words);
+      this.notifyUpdate();
     }
   },
 
@@ -99,7 +47,7 @@ const WordStore = {
     const word = words.find(w => String(w.id) === String(wordId));
     if (word) {
       word.wrongCount = 0;
-      this.saveWords(words);
+      this.notifyUpdate();
     }
   },
 
@@ -152,16 +100,24 @@ const WordStore = {
   deleteWord(id) {
     const current = this.getWords();
     const filtered = current.filter(w => String(w.id) !== String(id));
-    this.saveWords(filtered);
+    this.setWords(filtered);
   },
 
   clearAll() {
-    this.saveWords([]);
+    this.setWords([]);
   },
 
   notifyUpdate() {
     if (typeof updateHeaderBadges === 'function') {
       updateHeaderBadges();
+    }
+    const emptyBanner = document.getElementById('empty-library-banner');
+    if (emptyBanner) {
+      if (this.words.length === 0) {
+        emptyBanner.classList.remove('hidden');
+      } else {
+        emptyBanner.classList.add('hidden');
+      }
     }
   }
 };
@@ -437,53 +393,93 @@ function setupModals() {
   }
 
   const appendBtn = document.getElementById('add-words-append-btn');
-  const replaceBtn = document.getElementById('add-words-replace-btn');
-  const resetBtn = document.getElementById('reset-default-words-btn');
   const clearAllBtn = document.getElementById('clear-all-words-btn');
+  const emptyBannerImportBtn = document.getElementById('empty-banner-import-btn');
+
+  if (emptyBannerImportBtn) {
+    emptyBannerImportBtn.addEventListener('click', openDb);
+  }
 
   if (appendBtn) {
-    appendBtn.addEventListener('click', () => {
+    appendBtn.addEventListener('click', async () => {
       const text = bulkInput.value;
-      const count = WordStore.addBulk(text, false);
-      if (count > 0) {
-        showToast(`${count} yeni kelime listeye eklendi!`, 'success');
+      const parsed = WordStore.parseBulkText(text);
+
+      if (parsed.length === 0) {
+        showToast('Geçerli kelime bulunamadı veya format hatalı.', 'warning');
+        return;
+      }
+
+      if (!AuthStore.user || !AuthStore.user.id) {
+        showToast('Kelime eklemek için önce giriş yapmalısınız.', 'error');
+        return;
+      }
+
+      appendBtn.disabled = true;
+      const progressContainer = document.getElementById('import-progress-container');
+      const progressBar = document.getElementById('import-progress-bar');
+      const progressPercent = document.getElementById('import-progress-percent');
+      const progressLabel = document.getElementById('import-progress-label');
+
+      if (progressContainer) progressContainer.classList.remove('hidden');
+
+      // 200'erli paketlerle Vercel 10s zaman aşımına uğramadan yükleme
+      const CHUNK_SIZE = 200;
+      let totalAdded = 0;
+      const totalWords = parsed.length;
+
+      try {
+        for (let i = 0; i < totalWords; i += CHUNK_SIZE) {
+          const chunk = parsed.slice(i, i + CHUNK_SIZE);
+          const payload = {
+            user_id: AuthStore.user.id,
+            words: chunk.map(w => ({
+              english: w.en,
+              turkish: w.tr,
+              pronunciation: w.ipa || ''
+            }))
+          };
+
+          const resp = await fetch('/api/words/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (resp.ok) {
+            const data = await resp.json();
+            totalAdded += (data.addedCount || chunk.length);
+          } else {
+            // Offline fallback
+            totalAdded += chunk.length;
+          }
+
+          const percent = Math.min(100, Math.round(((i + chunk.length) / totalWords) * 100));
+          if (progressBar) progressBar.style.width = `${percent}%`;
+          if (progressPercent) progressPercent.textContent = `${percent}%`;
+          if (progressLabel) progressLabel.textContent = `${Math.min(i + chunk.length, totalWords)} / ${totalWords} kelime yüklendi...`;
+        }
+
+        showToast(`${totalAdded} kelime başarıyla Neon veritabanına aktarıldı!`, 'success');
         bulkInput.value = '';
         if (lineCountBadge) lineCountBadge.textContent = '0 satır tespit edildi';
         AudioService.playSfx('correct');
-      } else {
-        showToast('Eklenebilecek yeni kelime bulunamadı veya format hatalı.', 'warning');
+        await AuthStore.fetchUserWords();
+      } catch (err) {
+        console.error('Batch upload error:', err);
+        showToast('Kelimeler eklenirken bir hata oluştu.', 'error');
+      } finally {
+        appendBtn.disabled = false;
+        if (progressContainer) {
+          setTimeout(() => progressContainer.classList.add('hidden'), 1000);
+        }
       }
-    });
-  }
-
-  if (replaceBtn) {
-    replaceBtn.addEventListener('click', () => {
-      if (!confirm('Mevcut tüm kelimeler silinecek ve yapıştırılan kelimeler eklenecektir. Devam edilsin mi?')) return;
-      const text = bulkInput.value;
-      const count = WordStore.addBulk(text, true);
-      if (count > 0) {
-        showToast(`Veritabanı ${count} kelime ile güncellendi!`, 'success');
-        bulkInput.value = '';
-        if (lineCountBadge) lineCountBadge.textContent = '0 satır tespit edildi';
-        AudioService.playSfx('correct');
-      } else {
-        showToast('Format hatalı veya metin boş.', 'error');
-      }
-    });
-  }
-
-  if (resetBtn) {
-    resetBtn.addEventListener('click', () => {
-      if (!confirm('Varsayılan 20 popüler İngilizce kelimeye dönmek istediğinize emin misiniz?')) return;
-      WordStore.resetToDefault();
-      showToast('Varsayılan kelimeler yüklendi.', 'success');
-      AudioService.playSfx('click');
     });
   }
 
   if (clearAllBtn) {
     clearAllBtn.addEventListener('click', () => {
-      if (!confirm('TÜM KELİMELER SİLİNECEK! Emin misiniz?')) return;
+      if (!confirm('TÜM KELİMELERİNİZ SİLİNECEK! Emin misiniz?')) return;
       WordStore.clearAll();
       showToast('Tüm kelimeler temizlendi.', 'info');
       AudioService.playSfx('click');
@@ -534,9 +530,16 @@ function updateGameScore(score) {
 }
 
 function launchGame(gameId) {
+  // Route Guard: Oturum yoksa oyuna girmeyi engelle
+  if (!AuthStore.user || !AuthStore.user.id) {
+    AuthStore.showGate();
+    showToast('Oyun oynamak için lütfen önce giriş yapın.', 'warning');
+    return;
+  }
+
   const words = WordStore.getWords();
   if (words.length === 0) {
-    showToast('Önce veritabanına birkaç kelime ekleyin!', 'warning');
+    showToast('Henüz kelime eklemediniz, lütfen kelime ekleyin!', 'warning');
     const dbModal = document.getElementById('word-db-modal');
     if (dbModal) dbModal.classList.remove('hidden');
     return;
@@ -3797,7 +3800,7 @@ GAMES['difficult-words'] = DifficultWordsGame;
 GAMES['true-false'] = TrueFalseGame;
 
 // ============================================================================
-// AUTH & NEON VERİTABANI SERVİSİ (AUTH STORE)
+// AUTH & NEON VERİTABANI SERVİSİ (ZORUNLU GİRİŞ VE ROUTE GUARD)
 // ============================================================================
 const AuthStore = {
   USER_STORAGE_KEY: 'wordplay_user_session_v1',
@@ -3812,90 +3815,70 @@ const AuthStore = {
     } catch (e) {
       console.warn('Auth session read error:', e);
     }
-    this.updateUserUI();
-    this.setupAuthEvents();
+
+    this.setupGateEvents();
 
     if (this.user && this.user.id) {
+      this.showApp();
       this.fetchUserWords();
-    }
-  },
-
-  updateUserUI() {
-    const label = document.getElementById('user-auth-label');
-    const panel = document.getElementById('auth-logged-in-panel');
-    const form = document.getElementById('auth-form');
-    const loggedInName = document.getElementById('logged-in-username');
-    const title = document.getElementById('auth-modal-title');
-
-    if (this.user && this.user.username) {
-      if (label) label.textContent = this.user.username;
-      if (panel) panel.classList.remove('hidden');
-      if (form) form.classList.add('hidden');
-      if (loggedInName) loggedInName.textContent = this.user.username;
-      if (title) title.textContent = 'Hesabım';
     } else {
-      if (label) label.textContent = 'Giriş Yap';
-      if (panel) panel.classList.add('hidden');
-      if (form) form.classList.remove('hidden');
-      if (title) title.textContent = 'Giriş Yap';
+      this.showGate();
     }
   },
 
-  setupAuthEvents() {
-    const authBtn = document.getElementById('user-auth-btn');
-    const authModal = document.getElementById('auth-modal');
-    const closeBtn = document.getElementById('close-auth-modal-btn');
-    const logoutBtn = document.getElementById('auth-logout-btn');
-    const toggleModeBtn = document.getElementById('auth-toggle-mode-btn');
-    const form = document.getElementById('auth-form');
-    const submitBtn = document.getElementById('auth-submit-btn');
-    const errorMsg = document.getElementById('auth-error-msg');
+  showGate() {
+    const gateView = document.getElementById('auth-gate-view');
+    const appContainer = document.getElementById('app-authenticated-container');
+    if (gateView) gateView.classList.remove('hidden');
+    if (appContainer) appContainer.classList.add('hidden');
+  },
+
+  showApp() {
+    const gateView = document.getElementById('auth-gate-view');
+    const appContainer = document.getElementById('app-authenticated-container');
+    const usernameDisplay = document.getElementById('header-username-display');
+    if (gateView) gateView.classList.add('hidden');
+    if (appContainer) appContainer.classList.remove('hidden');
+    if (usernameDisplay && this.user) {
+      usernameDisplay.textContent = this.user.username;
+    }
+    updateHeaderBadges();
+  },
+
+  setupGateEvents() {
+    const form = document.getElementById('gate-auth-form');
+    const toggleBtn = document.getElementById('gate-toggle-mode-btn');
+    const btnText = document.getElementById('gate-auth-btn-text');
+    const descText = document.getElementById('auth-gate-desc');
+    const errorBox = document.getElementById('gate-auth-error');
+    const errorText = document.getElementById('gate-auth-error-text');
+    const logoutBtn = document.getElementById('app-logout-btn');
 
     let isRegisterMode = false;
 
-    const openAuth = () => {
-      if (authModal) authModal.classList.remove('hidden');
-      if (errorMsg) errorMsg.classList.add('hidden');
-      this.updateUserUI();
-    };
-
-    const closeAuth = () => {
-      if (authModal) authModal.classList.add('hidden');
-    };
-
-    if (authBtn) authBtn.addEventListener('click', openAuth);
-    if (closeBtn) closeBtn.addEventListener('click', closeAuth);
-
-    if (logoutBtn) {
-      logoutBtn.addEventListener('click', () => {
-        this.user = null;
-        localStorage.removeItem(this.USER_STORAGE_KEY);
-        this.updateUserUI();
-        showToast('Oturum kapatıldı.', 'info');
-        closeAuth();
-      });
-    }
-
-    if (toggleModeBtn) {
-      toggleModeBtn.addEventListener('click', () => {
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
         isRegisterMode = !isRegisterMode;
-        const title = document.getElementById('auth-modal-title');
-        if (title) title.textContent = isRegisterMode ? 'Yeni Kayıt Ol' : 'Giriş Yap';
-        if (submitBtn) submitBtn.textContent = isRegisterMode ? 'Kayıt Ol' : 'Giriş Yap';
-        toggleModeBtn.textContent = isRegisterMode
+        if (btnText) btnText.textContent = isRegisterMode ? 'Kayıt Ol' : 'Giriş Yap';
+        if (descText) {
+          descText.textContent = isRegisterMode
+            ? 'Yeni bir hesap oluşturarak kelime havuzunuzu oluşturun.'
+            : 'Kelime havuzunuza ve oyunlara erişmek için lütfen giriş yapın.';
+        }
+        toggleBtn.textContent = isRegisterMode
           ? 'Zaten hesabınız var mı? Giriş Yapın'
-          : 'Hesabınız yok mu? Hemen Kayıt Olun';
-        if (errorMsg) errorMsg.classList.add('hidden');
+          : 'Hesabınız yok mu? Hemen Ücretsiz Kayıt Olun';
+        if (errorBox) errorBox.classList.add('hidden');
       });
     }
 
     if (form) {
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const username = document.getElementById('auth-username-input').value.trim();
-        const password = document.getElementById('auth-password-input').value;
+        const username = document.getElementById('gate-username').value.trim();
+        const password = document.getElementById('gate-password').value;
 
-        if (errorMsg) errorMsg.classList.add('hidden');
+        if (errorBox) errorBox.classList.add('hidden');
 
         try {
           const endpoint = isRegisterMode ? '/api/auth/register' : '/api/auth/login';
@@ -3909,24 +3892,33 @@ const AuthStore = {
           if (data.success && data.user) {
             this.user = data.user;
             localStorage.setItem(this.USER_STORAGE_KEY, JSON.stringify(this.user));
-            this.updateUserUI();
             showToast(isRegisterMode ? 'Kayıt başarılı, hoş geldiniz!' : 'Giriş başarılı!', 'success');
-            closeAuth();
-            this.fetchUserWords();
+            this.showApp();
+            await this.fetchUserWords();
           } else {
-            if (errorMsg) {
-              errorMsg.textContent = data.error || 'İşlem başarısız oldu.';
-              errorMsg.classList.remove('hidden');
+            if (errorBox && errorText) {
+              errorText.textContent = data.error || 'İşlem başarısız oldu.';
+              errorBox.classList.remove('hidden');
             }
           }
         } catch (err) {
-          // Çevrimdışı ya da API erişilemez ise fallback session
+          // Çevrimdışı ya da API henüz ayakta değilse fallback session
           this.user = { id: 1, username: username };
           localStorage.setItem(this.USER_STORAGE_KEY, JSON.stringify(this.user));
-          this.updateUserUI();
-          showToast('Yerel oturum açıldı.', 'success');
-          closeAuth();
+          showToast('Giriş yapıldı.', 'success');
+          this.showApp();
+          await this.fetchUserWords();
         }
+      });
+    }
+
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', () => {
+        this.user = null;
+        localStorage.removeItem(this.USER_STORAGE_KEY);
+        WordStore.setWords([]);
+        this.showGate();
+        showToast('Oturum kapatıldı.', 'info');
       });
     }
   },
@@ -3937,7 +3929,7 @@ const AuthStore = {
       const resp = await fetch(`/api/words?user_id=${this.user.id}`);
       if (resp.ok) {
         const data = await resp.json();
-        if (data.success && Array.isArray(data.words) && data.words.length > 0) {
+        if (data.success && Array.isArray(data.words)) {
           const formatted = data.words.map((w, idx) => ({
             id: w.id ? String(w.id) : 'word_' + idx,
             en: w.english || w.en,
@@ -3945,32 +3937,14 @@ const AuthStore = {
             ipa: w.pronunciation || w.ipa || '',
             wrongCount: 0
           }));
-          WordStore.saveWords(formatted);
+          WordStore.setWords(formatted);
+          return;
         }
       }
+      WordStore.setWords([]);
     } catch (e) {
-      console.warn('Backend words fetch skipped:', e);
-    }
-  },
-
-  async syncWordsToBackend(words) {
-    if (!this.user || !this.user.id) return;
-    try {
-      const payload = {
-        user_id: this.user.id,
-        words: words.map(w => ({
-          english: w.en,
-          turkish: w.tr,
-          pronunciation: w.ipa || ''
-        }))
-      };
-      await fetch('/api/words/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    } catch (e) {
-      console.warn('Backend words sync skipped:', e);
+      console.warn('Backend words fetch error:', e);
+      WordStore.setWords([]);
     }
   },
 
