@@ -821,82 +821,82 @@ class FlashcardsGame {
     updateGameScore(this.knownCount);
 
     stage.innerHTML = `
-      <div class="w-full max-w-lg flex flex-col items-center">
+      <div class="w-full max-w-lg flex flex-col items-center pb-6">
         <!-- İlerleme Çubuğu -->
-        <div class="w-full flex items-center justify-between text-xs text-slate-400 mb-3 px-2">
+        <div class="w-full flex items-center justify-between text-xs text-slate-400 mb-2 px-1">
           <span>Kart ${this.currentIndex + 1} / ${this.words.length}</span>
           <span>Öğrenilen: ${this.knownCount}</span>
         </div>
-        <div class="w-full h-1.5 bg-slate-700 rounded-full mb-6 overflow-hidden">
+        <div class="w-full h-1.5 bg-slate-700 rounded-full mb-3 sm:mb-5 overflow-hidden">
           <div class="h-full bg-brand-500 transition-all duration-300" style="width: ${((this.currentIndex + 1) / this.words.length) * 100}%"></div>
         </div>
 
-        <!-- 3D Flip Kart -->
+        <!-- 3D Flip Kart (Mobil Ekranlarda Dikey 280px / Masaüstü 340px) -->
         <div class="flashcard-wrapper ${this.isFlipped ? 'flipped' : ''}" id="flashcard-element">
           <div class="flashcard-inner">
             <!-- Ön Yüz: İngilizce & Okunuş (Flexbox Üst, Orta, Alt Dengeli Dağılım) -->
-            <div class="flashcard-face flashcard-front card-front flex flex-col justify-between items-center p-5 sm:p-6 w-full h-full relative">
+            <div class="flashcard-face flashcard-front card-front flex flex-col justify-between items-center p-4 sm:p-6 w-full h-full relative">
               <div class="w-full flex items-center justify-between">
                 <span class="text-xs uppercase tracking-widest text-brand-400 font-bold">İngilizce</span>
                 <!-- Yıldız / Bookmark Butonu -->
-                <button id="fc-star-btn" class="p-1.5 rounded-xl transition ${WordStore.isInStudyList(word.en) ? 'text-amber-400 bg-amber-500/20 border border-amber-500/40' : 'text-slate-500 hover:text-amber-400 bg-slate-800/80 border border-slate-700'}" title="Özel Listeye Ekle/Çıkar">
+                <button id="fc-star-btn" class="p-1 rounded-lg sm:rounded-xl transition ${WordStore.isInStudyList(word.en) ? 'text-amber-400 bg-amber-500/20 border border-amber-500/40' : 'text-slate-500 hover:text-amber-400 bg-slate-800/80 border border-slate-700'}" title="Özel Listeye Ekle/Çıkar">
                   <i data-lucide="star" class="w-4 h-4 ${WordStore.isInStudyList(word.en) ? 'fill-amber-400' : ''}"></i>
                 </button>
               </div>
 
-              <div class="my-auto text-center py-2">
-                <h2 class="text-2xl sm:text-4xl font-extrabold text-white mb-1.5 font-display tracking-tight">${word.en}</h2>
-                <p class="text-sm sm:text-base font-mono text-slate-400">${word.ipa ? `[${word.ipa}]` : ''}</p>
+              <div class="my-auto text-center py-1 sm:py-2">
+                <h2 class="text-2xl sm:text-4xl font-extrabold text-white mb-1 font-display tracking-tight">${word.en}</h2>
+                <p class="text-xs sm:text-base font-mono text-slate-400">${word.ipa ? `[${word.ipa}]` : ''}</p>
               </div>
 
-              <div class="w-full pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-                <button id="card-listen-btn" class="px-3 py-1.5 rounded-lg bg-brand-500/20 hover:bg-brand-500/30 text-brand-300 border border-brand-500/40 transition flex items-center gap-1.5 font-medium" title="Sesli Oku">
-                  <i data-lucide="volume-2" class="w-4 h-4 text-brand-400"></i> Dinle
+              <div class="w-full pt-2 sm:pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                <button id="card-listen-btn" class="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-brand-500/20 hover:bg-brand-500/30 text-brand-300 border border-brand-500/40 transition flex items-center gap-1.5 font-medium" title="Sesli Oku">
+                  <i data-lucide="volume-2" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-400"></i> Dinle
                 </button>
-                <span class="flex items-center gap-1 text-slate-400">
+                <span class="flex items-center gap-1 text-[11px] sm:text-xs text-slate-400">
                   <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i> Çevirmek için tıkla
                 </span>
               </div>
             </div>
 
             <!-- Arka Yüz: Türkçe Anlam (Ön Yüz İle Birebir Kenetli ve Hizalı) -->
-            <div class="flashcard-face flashcard-back card-back flex flex-col justify-between items-center p-5 sm:p-6 w-full h-full relative" style="transform: rotateY(180deg); -webkit-transform: rotateY(180deg);">
+            <div class="flashcard-face flashcard-back card-back flex flex-col justify-between items-center p-4 sm:p-6 w-full h-full relative" style="transform: rotateY(180deg); -webkit-transform: rotateY(180deg);">
               <div class="w-full flex items-center justify-between">
                 <span class="text-xs uppercase tracking-widest text-blue-200 font-bold">Türkçe Karşılığı</span>
-                <span class="text-[11px] px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200 border border-blue-400/30">Anlam</span>
+                <span class="text-[10px] sm:text-[11px] px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-200 border border-blue-400/30">Anlam</span>
               </div>
 
-              <div class="my-auto text-center py-4 px-2">
-                <h2 class="text-xl sm:text-3xl font-extrabold text-white font-display leading-tight">${word.tr}</h2>
+              <div class="my-auto text-center py-2 sm:py-4 px-2">
+                <h2 class="text-lg sm:text-3xl font-extrabold text-white font-display leading-tight">${word.tr}</h2>
               </div>
 
-              <div class="w-full pt-3 border-t border-blue-400/20 flex items-center justify-between text-xs text-blue-100">
-                <span class="flex items-center gap-1 text-blue-200">
+              <div class="w-full pt-2 sm:pt-3 border-t border-blue-400/20 flex items-center justify-between text-xs text-blue-100">
+                <span class="flex items-center gap-1 text-[11px] sm:text-xs text-blue-200">
                   <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Geri çevir
                 </span>
-                <span class="text-[11px] text-blue-200/80">Hafıza Kartı</span>
+                <span class="text-[10px] sm:text-[11px] text-blue-200/80">Hafıza Kartı</span>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Alt Kontrol Butonları -->
-        <div class="w-full flex items-center justify-between gap-3 mt-6">
-          <button id="prev-card-btn" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition border border-slate-700 flex items-center gap-1.5" ${this.currentIndex === 0 ? 'disabled style="opacity: 0.5"' : ''}>
-            <i data-lucide="chevron-left" class="w-4 h-4"></i> Önceki
+        <!-- Alt Kontrol Butonları (Mobil Uyumlu: mt-3, py-2 px-3, text-sm) -->
+        <div class="w-full flex items-center justify-between gap-1.5 sm:gap-3 mt-3 sm:mt-5">
+          <button id="prev-card-btn" class="px-2.5 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs sm:text-sm font-medium transition border border-slate-700 flex items-center gap-1 shrink-0" ${this.currentIndex === 0 ? 'disabled style="opacity: 0.5"' : ''}>
+            <i data-lucide="chevron-left" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i> Önceki
           </button>
 
-          <div class="flex items-center gap-2">
-            <button id="mark-unknown-btn" class="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-sm font-medium transition flex items-center gap-1.5">
-              <i data-lucide="x" class="w-4 h-4"></i> Zorlandım
+          <div class="flex items-center gap-1.5 sm:gap-2">
+            <button id="mark-unknown-btn" class="px-2.5 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs sm:text-sm font-medium transition flex items-center gap-1">
+              <i data-lucide="x" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i> Zorlandım
             </button>
-            <button id="mark-known-btn" class="px-4 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-sm font-medium transition flex items-center gap-1.5">
-              <i data-lucide="check" class="w-4 h-4"></i> Biliyorum
+            <button id="mark-known-btn" class="px-2.5 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 text-xs sm:text-sm font-medium transition flex items-center gap-1">
+              <i data-lucide="check" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i> Biliyorum
             </button>
           </div>
 
-          <button id="next-card-btn" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition border border-slate-700 flex items-center gap-1.5" ${this.currentIndex === this.words.length - 1 ? 'disabled style="opacity: 0.5"' : ''}>
-            Sonraki <i data-lucide="chevron-right" class="w-4 h-4"></i>
+          <button id="next-card-btn" class="px-2.5 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs sm:text-sm font-medium transition border border-slate-700 flex items-center gap-1 shrink-0" ${this.currentIndex === this.words.length - 1 ? 'disabled style="opacity: 0.5"' : ''}>
+            Sonraki <i data-lucide="chevron-right" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
           </button>
         </div>
       </div>
