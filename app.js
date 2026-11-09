@@ -1229,25 +1229,46 @@ class TrueFalseGame {
 class MatchingGame {
   constructor() {
     const all = shuffleArray(WordStore.getWords());
-    // 6 kelime seç (toplam 12 kart)
+    // 6 kelime seç (6 İngilizce, 6 Türkçe olmak üzere 12 kart)
     this.selectedWords = all.slice(0, Math.min(6, all.length));
-    this.cards = [];
+    this.enCards = [];
+    this.trCards = [];
+    this.activeMatches = []; // Tamamlanan eşleşmeler: [{ en, tr }]
     this.firstSelected = null;
     this.matchedCount = 0;
     this.score = 0;
     this.moves = 0;
+    this.isProcessing = false;
   }
 
   init() {
     setGameHeader('Eşleştirme Oyunu', 'İngilizce ve Türkçe karşılıklarını birbirleriyle eşleştirerek yok et');
 
-    // Kart listesini oluştur
-    this.cards = [];
-    this.selectedWords.forEach((w, idx) => {
-      this.cards.push({ id: `en_${idx}`, wordId: w.id, text: w.en, type: 'en', matched: false, word: w });
-      this.cards.push({ id: `tr_${idx}`, wordId: w.id, text: w.tr, type: 'tr', matched: false, word: w });
-    });
-    this.cards = shuffleArray(this.cards);
+    // Sol sütun: Rastgele karıştırılmış İngilizce kartlar
+    this.enCards = shuffleArray(this.selectedWords.map((w, idx) => ({
+      id: `en_${w.id}_${idx}`,
+      wordId: w.id,
+      text: w.en,
+      type: 'en',
+      matched: false,
+      word: w
+    })));
+
+    // Sağ sütun: Rastgele karıştırılmış Türkçe kartlar
+    this.trCards = shuffleArray(this.selectedWords.map((w, idx) => ({
+      id: `tr_${w.id}_${idx}`,
+      wordId: w.id,
+      text: w.tr,
+      type: 'tr',
+      matched: false,
+      word: w
+    })));
+
+    this.matchedCount = 0;
+    this.firstSelected = null;
+    this.activeMatches = [];
+    this.isProcessing = false;
+
     this.render();
   }
 
@@ -1258,23 +1279,75 @@ class MatchingGame {
     updateGameScore(this.score);
 
     stage.innerHTML = `
-      <div class="w-full max-w-2xl flex flex-col items-center">
+      <div class="w-full max-w-3xl flex flex-col items-center">
         <!-- Bilgi Çubuğu -->
-        <div class="w-full flex items-center justify-between text-xs text-slate-400 mb-4 px-2">
-          <span>Eşleşen: <strong class="text-white">${this.matchedCount} / ${this.selectedWords.length}</strong></span>
+        <div class="w-full flex items-center justify-between text-xs sm:text-sm text-slate-400 mb-5 px-2">
+          <span>Eşleşen: <strong class="text-brand-400">${this.matchedCount} / ${this.selectedWords.length}</strong></span>
           <span>Hamle: <strong class="text-white">${this.moves}</strong></span>
-          <button id="rematch-btn" class="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs border border-slate-700 transition">
+          <button id="rematch-btn" class="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-slate-700 transition flex items-center gap-1.5 shadow-sm">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
             Yeniden Karıştır
           </button>
         </div>
 
-        <!-- 12 Kartlık Grid -->
-        <div class="w-full grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3" id="matching-grid">
-          ${this.cards.map(c => `
-            <div class="match-card ${c.matched ? 'matched pointer-events-none' : 'unmatched'}" data-card-id="${c.id}">
-              <span class="text-sm sm:text-base">${c.text}</span>
+        <!-- Çift Sütunlu Sağlı-Sollu Düzen -->
+        <div class="w-full grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 items-start mb-6">
+          <!-- Sol Sütun: İngilizce -->
+          <div class="flex flex-col gap-3">
+            <div class="flex items-center justify-between px-2 pb-1 border-b border-slate-700/60">
+              <span class="text-xs font-semibold tracking-wider text-blue-400 uppercase flex items-center gap-1.5">
+                <i data-lucide="globe" class="w-3.5 h-3.5"></i> İngilizce Kelimeler
+              </span>
+              <span class="text-[11px] text-slate-400">Sol Taraf</span>
             </div>
-          `).join('')}
+            <div class="flex flex-col gap-2.5" id="en-column">
+              ${this.enCards.map(c => `
+                <div class="match-card ${c.matched ? 'matched-hidden' : 'unmatched'}" data-card-id="${c.id}" data-type="en">
+                  <span class="text-sm md:text-base font-semibold">${c.text}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+
+          <!-- Sağ Sütun: Türkçe -->
+          <div class="flex flex-col gap-3">
+            <div class="flex items-center justify-between px-2 pb-1 border-b border-slate-700/60">
+              <span class="text-xs font-semibold tracking-wider text-emerald-400 uppercase flex items-center gap-1.5">
+                <i data-lucide="languages" class="w-3.5 h-3.5"></i> Türkçe Karşılıkları
+              </span>
+              <span class="text-[11px] text-slate-400">Sağ Taraf</span>
+            </div>
+            <div class="flex flex-col gap-2.5" id="tr-column">
+              ${this.trCards.map(c => `
+                <div class="match-card ${c.matched ? 'matched-hidden' : 'unmatched'}" data-card-id="${c.id}" data-type="tr">
+                  <span class="text-sm md:text-base font-semibold">${c.text}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+
+        <!-- Alt Bölüm: Aktif Eşleşmeler Paneli -->
+        <div class="w-full bg-slate-900/80 rounded-2xl border border-slate-800 p-4 shadow-lg backdrop-blur-sm">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300">Aktif Eşleşmeler</h4>
+            </div>
+            <span class="text-xs text-slate-400">Tamamlanan: <strong class="text-emerald-400">${this.activeMatches.length}</strong></span>
+          </div>
+
+          <div id="active-matches-container" class="flex flex-wrap gap-2.5 min-h-[48px] items-center p-2 rounded-xl bg-slate-950/60 border border-slate-800/80">
+            ${this.activeMatches.length === 0 ? `
+              <span class="text-xs text-slate-400 italic px-2 py-1">Doğru eşleştirdiğin kelime çiftleri burada listelenecek...</span>
+            ` : this.activeMatches.map(m => `
+              <div class="active-match-badge">
+                <span class="en-word">${m.en}</span>
+                <span class="arrow">➔</span>
+                <span class="tr-word">${m.tr}</span>
+              </div>
+            `).join('')}
+          </div>
         </div>
       </div>
     `;
@@ -1291,15 +1364,19 @@ class MatchingGame {
       });
     }
 
-    const cardElements = document.querySelectorAll('#matching-grid .match-card');
+    const allCards = [...this.enCards, ...this.trCards];
+    const cardElements = document.querySelectorAll('.match-card:not(.matched-hidden)');
+
     cardElements.forEach(el => {
       el.addEventListener('click', () => {
+        if (this.isProcessing) return;
+
         const cardId = el.getAttribute('data-card-id');
-        const cardData = this.cards.find(c => c.id === cardId);
+        const cardData = allCards.find(c => c.id === cardId);
         if (!cardData || cardData.matched) return;
 
-        // Kart zaten seçiliyse iptal et
-        if (this.firstSelected && this.firstSelected.id === cardId) {
+        // Kart zaten seçiliyse seçimi kaldır
+        if (this.firstSelected && this.firstSelected.card.id === cardId) {
           el.classList.remove('selected');
           this.firstSelected = null;
           return;
@@ -1309,44 +1386,76 @@ class MatchingGame {
 
         if (!this.firstSelected) {
           // İlk kart seçildi
-          this.firstSelected = cardData;
+          this.firstSelected = { card: cardData, el };
           el.classList.add('selected');
         } else {
           // İkinci kart seçildi
           this.moves++;
           el.classList.add('selected');
-          const first = this.firstSelected;
-          const second = cardData;
+          this.isProcessing = true;
 
-          // Eşleşme kontrolü: Farklı tipte ve aynı wordId'ye sahip olmalı
-          const isMatch = (first.wordId === second.wordId) && (first.type !== second.type);
+          const first = this.firstSelected;
+          const second = { card: cardData, el };
+
+          // Eşleşme kontrolü: Farklı tipte (biri en, biri tr) ve aynı wordId'ye sahip olmalı
+          const isMatch = (first.card.wordId === second.card.wordId) && (first.card.type !== second.card.type);
 
           if (isMatch) {
-            first.matched = true;
-            second.matched = true;
+            // DOĞRU EŞLEŞME:
+            // 1. Yeşil parlama
+            first.el.classList.remove('selected');
+            second.el.classList.remove('selected');
+            first.el.classList.add('match-success');
+            second.el.classList.add('match-success');
+
+            first.card.matched = true;
+            second.card.matched = true;
             this.matchedCount++;
             this.score += 20;
             updateGameScore(this.score);
             AudioService.playSfx('pop');
-            WordStore.recordSuccess(first.wordId);
+            WordStore.recordSuccess(first.card.wordId);
+
+            // Aktif eşleşmelere ekle
+            const enText = first.card.type === 'en' ? first.card.text : second.card.text;
+            const trText = first.card.type === 'tr' ? first.card.text : second.card.text;
+            this.activeMatches.push({ en: enText, tr: trText });
 
             setTimeout(() => {
+              // 2. Opaklık sıfırlanarak kaybolsun
+              first.el.classList.add('matched-hidden');
+              second.el.classList.add('matched-hidden');
+              first.el.classList.remove('match-success');
+              second.el.classList.remove('match-success');
+
               this.firstSelected = null;
+              this.isProcessing = false;
               this.render();
+
               if (this.matchedCount === this.selectedWords.length) {
                 AudioService.playSfx('win');
-                this.renderComplete();
+                setTimeout(() => {
+                  this.renderComplete();
+                }, 400);
               }
-            }, 300);
+            }, 500);
           } else {
-            // Hatalı eşleşme
+            // HATALI EŞLEŞME:
+            // Kırmızı renk ile sarsılma (shake) animasyonu ve sıfırlama
             AudioService.playSfx('wrong');
-            WordStore.recordMistake(first.wordId);
-            WordStore.recordMistake(second.wordId);
+            WordStore.recordMistake(first.card.wordId);
+            WordStore.recordMistake(second.card.wordId);
+
+            first.el.classList.remove('selected');
+            second.el.classList.remove('selected');
+            first.el.classList.add('wrong');
+            second.el.classList.add('wrong');
 
             setTimeout(() => {
-              cardElements.forEach(c => c.classList.remove('selected'));
+              first.el.classList.remove('wrong');
+              second.el.classList.remove('wrong');
               this.firstSelected = null;
+              this.isProcessing = false;
             }, 600);
           }
         }

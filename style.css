@@ -238,45 +238,95 @@ h1, h2, h3, h4, h5, h6, .font-display {
 
 /* Eşleştirme Kartları */
 .match-card {
-  aspect-ratio: 2.2 / 1;
+  min-height: 3.5rem;
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 0.75rem;
+  padding: 0.75rem 1rem;
   font-weight: 600;
   border-radius: 0.75rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   user-select: none;
+  width: 100%;
+  position: relative;
 }
 
 .match-card.unmatched {
-  background: rgba(30, 41, 59, 0.8);
-  border: 1px solid rgba(71, 85, 105, 0.7);
+  background: rgba(30, 41, 59, 0.85);
+  border: 1.5px solid rgba(71, 85, 105, 0.6);
   color: #f1f5f9;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
 }
 
 .match-card.unmatched:hover {
   border-color: #60a5fa;
+  background: rgba(30, 41, 59, 1);
   transform: translateY(-2px);
+  box-shadow: 0 6px 12px -2px rgba(59, 130, 246, 0.25);
 }
 
 .match-card.selected {
-  background: rgba(37, 99, 235, 0.35);
+  background: rgba(37, 99, 235, 0.3);
   border: 2px solid #3b82f6;
   color: #93c5fd;
-  transform: scale(1.03);
-  box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+  transform: scale(1.02);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.45);
 }
 
-.match-card.matched {
-  background: rgba(16, 185, 129, 0.2);
-  border: 1px solid rgba(16, 185, 129, 0.4);
-  color: #6ee7b7;
-  opacity: 0.35;
-  cursor: default;
-  transform: scale(0.96);
+.match-card.match-success {
+  background: rgba(16, 185, 129, 0.3) !important;
+  border: 2px solid #10b981 !important;
+  color: #6ee7b7 !important;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.5) !important;
+  transform: scale(1.04);
+}
+
+.match-card.matched-hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.85);
+  visibility: hidden;
+  transition: all 0.3s ease;
+}
+
+.match-card.wrong {
+  background: rgba(239, 68, 68, 0.3) !important;
+  border: 2px solid #ef4444 !important;
+  color: #fca5a5 !important;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.5) !important;
+  animation: shakeWrong 0.4s ease;
+}
+
+/* Aktif Eşleşmeler Rozetleri */
+.active-match-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: 0.5rem;
+  color: #e2e8f0;
+  font-size: 0.875rem;
+  animation: pulseCorrect 0.3s ease-out;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.active-match-badge .en-word {
+  color: #60a5fa;
+  font-weight: 600;
+}
+
+.active-match-badge .arrow {
+  color: #10b981;
+  font-weight: bold;
+}
+
+.active-match-badge .tr-word {
+  color: #34d399;
+  font-weight: 600;
 }
 
 /* Wordle Hücreleri */
