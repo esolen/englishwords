@@ -28,6 +28,7 @@ const WordStore = {
       word.wrongCount = (word.wrongCount || 0) + 1;
       this.notifyUpdate();
       if (AuthStore && AuthStore.user && AuthStore.user.id) {
+        AuthStore.syncWrongWord(word.en, 'add');
         AuthStore.recordStatToBackend(gameType, 0, [word.en]);
       }
     }
@@ -39,15 +40,21 @@ const WordStore = {
     if (word && word.wrongCount > 0) {
       word.wrongCount = Math.max(0, word.wrongCount - 1);
       this.notifyUpdate();
+      if (word.wrongCount === 0 && AuthStore && AuthStore.user && AuthStore.user.id) {
+        AuthStore.syncWrongWord(word.en, 'remove');
+      }
     }
   },
 
   clearMistakes(wordId) {
     const words = this.getWords();
-    const word = words.find(w => String(w.id) === String(wordId));
+    const word = words.find(w => String(w.id) === String(wordId) || w.en.toLowerCase() === String(wordId).toLowerCase());
     if (word) {
       word.wrongCount = 0;
       this.notifyUpdate();
+      if (AuthStore && AuthStore.user && AuthStore.user.id) {
+        AuthStore.syncWrongWord(word.en, 'remove');
+      }
     }
   },
 
@@ -3945,25 +3952,61 @@ const AuthStore = {
   async fetchUserWords() {
     if (!this.user || !this.user.id) return;
     try {
+      // 1. Kullanıcının Kelimelerini Çek
       const resp = await fetch(`/api/words?user_id=${this.user.id}`);
+      let words = [];
       if (resp.ok) {
         const data = await resp.json();
         if (data.success && Array.isArray(data.words)) {
-          const formatted = data.words.map((w, idx) => ({
+          words = data.words.map((w, idx) => ({
             id: w.id ? String(w.id) : 'word_' + idx,
             en: w.english || w.en,
             tr: w.turkish || w.tr,
             ipa: w.pronunciation || w.ipa || '',
             wrongCount: 0
           }));
-          WordStore.setWords(formatted);
-          return;
         }
       }
-      WordStore.setWords([]);
+
+      // 2. Neon DB'den Zorlu (Yanlış Bilinen) Kelimeleri Çek ve Eşle
+      try {
+        const wrongResp = await fetch(`/api/words/wrong?user_id=${this.user.id}`);
+        if (wrongResp.ok) {
+          const wrongData = await wrongResp.json();
+          if (wrongData.success && Array.isArray(wrongData.wrongWords)) {
+            const wrongSet = new Set(wrongData.wrongWords.map(w => w.toLowerCase()));
+            words.forEach(w => {
+              if (wrongSet.has(w.en.toLowerCase())) {
+                w.wrongCount = 1;
+              }
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Wrong words fetch error:', err);
+      }
+
+      WordStore.setWords(words);
     } catch (e) {
       console.warn('Backend words fetch error:', e);
       WordStore.setWords([]);
+    }
+  },
+
+  async syncWrongWord(wordEn, action = 'add') {
+    if (!this.user || !this.user.id || !wordEn) return;
+    try {
+      await fetch('/api/words/wrong', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: this.user.id,
+          word: wordEn,
+          action: action
+        })
+      });
+    } catch (e) {
+      console.warn('Sync wrong word failed:', e);
     }
   },
 
