@@ -1004,48 +1004,76 @@ class DifficultWordsGame {
         <!-- 3D Kırmızı Kart -->
         <div class="flashcard-wrapper transition-all duration-300 ${this.isFlipped ? 'flipped' : ''}" id="diff-card-element">
           <div class="flashcard-inner">
-            <div class="flashcard-face bg-gradient-to-br from-slate-900 via-rose-950/40 to-slate-900 border-rose-500/40 relative">
-              <!-- Kart Üzerinde Hızlı Öğrendim Rozet Butonu -->
-              <button id="diff-card-quick-learn-btn" class="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 text-xs font-semibold flex items-center gap-1.5 transition shadow-md z-10" title="Zorlu listesinden hemen çıkar">
-                <i data-lucide="check" class="w-3.5 h-3.5"></i>
-                <span>Öğrendim</span>
-              </button>
+            <!-- Ön Yüz: Flexbox Düzeni -->
+            <div class="flashcard-face bg-gradient-to-br from-slate-900 via-rose-950/40 to-slate-900 border-rose-500/40 flex flex-col justify-between items-center p-6 w-full h-full">
+              <!-- Üst Başlık & Tip Rozeti -->
+              <div class="w-full flex items-center justify-between pb-2 border-b border-rose-500/20">
+                <span class="text-xs uppercase tracking-widest text-rose-400 font-bold flex items-center gap-1">
+                  <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> İngilizce
+                </span>
+                <span class="text-[11px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">Zorlu</span>
+              </div>
 
-              <span class="text-xs uppercase tracking-widest text-rose-400 font-semibold mb-2">İngilizce</span>
-              <h2 class="text-3xl sm:text-4xl font-extrabold text-white mb-2 font-display">${word.en}</h2>
-              <p class="text-base font-mono text-slate-400 mb-6">${word.ipa ? `[${word.ipa}]` : ''}</p>
+              <!-- Orta İçerik: Kelime & Okunuş -->
+              <div class="my-auto text-center py-4">
+                <h2 class="text-3xl sm:text-4xl font-extrabold text-white mb-2 font-display tracking-tight">${word.en}</h2>
+                <p class="text-base font-mono text-slate-400">${word.ipa ? `[${word.ipa}]` : ''}</p>
+              </div>
 
-              <div class="flex items-center gap-3">
-                <button id="diff-listen-btn" class="p-3 rounded-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/40 transition" title="Sesli Oku">
-                  <i data-lucide="volume-2" class="w-5 h-5"></i>
+              <!-- Alt Kısım: Ses & Çevir İpucu -->
+              <div class="w-full pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                <button id="diff-listen-btn" class="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 transition flex items-center gap-1.5 font-medium" title="Sesli Oku">
+                  <i data-lucide="volume-2" class="w-4 h-4 text-rose-400"></i> Dinle
                 </button>
-                <span class="text-xs text-slate-400">Anlamı görmek için tıkla &rarr;</span>
+                <span class="text-slate-400 flex items-center gap-1">
+                  <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i> Çevirmek için tıkla
+                </span>
               </div>
             </div>
 
-            <div class="flashcard-face bg-gradient-to-br from-rose-950 via-rose-900 to-red-900 border-rose-400/60 relative" style="transform: rotateY(180deg)">
-              <button id="diff-card-back-quick-learn-btn" class="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white border border-emerald-400/40 text-xs font-semibold flex items-center gap-1.5 transition shadow-md z-10" title="Zorlu listesinden hemen çıkar">
-                <i data-lucide="check" class="w-3.5 h-3.5"></i>
-                <span>Öğrendim</span>
-              </button>
-              <span class="text-xs uppercase tracking-widest text-rose-200 font-semibold mb-2">Türkçe Anlamı</span>
-              <h2 class="text-3xl sm:text-4xl font-extrabold text-white mb-6 font-display">${word.tr}</h2>
-              <span class="text-xs text-rose-200">Geri dönmek için tıkla</span>
+            <!-- Arka Yüz: Flexbox Düzeni (Türkçe Anlam) -->
+            <div class="flashcard-face bg-gradient-to-br from-rose-950 via-rose-900 to-red-950 border-rose-400/60 flex flex-col justify-between items-center p-6 w-full h-full" style="transform: rotateY(180deg)">
+              <!-- Üst Başlık -->
+              <div class="w-full flex items-center justify-between pb-2 border-b border-rose-400/20">
+                <span class="text-xs uppercase tracking-widest text-rose-200 font-bold flex items-center gap-1">
+                  <i data-lucide="languages" class="w-3.5 h-3.5"></i> Türkçe Karşılığı
+                </span>
+                <span class="text-[11px] px-2 py-0.5 rounded-full bg-rose-900/60 text-rose-200 border border-rose-400/30">Anlam</span>
+              </div>
+
+              <!-- Orta İçerik: Türkçe Anlam -->
+              <div class="my-auto text-center py-6 px-3">
+                <h2 class="text-3xl sm:text-4xl font-extrabold text-white font-display leading-tight">${word.tr}</h2>
+              </div>
+
+              <!-- Alt Kısım: Geri Çevir İpucu -->
+              <div class="w-full pt-3 border-t border-rose-800/60 flex items-center justify-between text-xs text-rose-200">
+                <span class="flex items-center gap-1 text-rose-300">
+                  <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Geri çevir
+                </span>
+                <span class="text-[11px] text-rose-200/80">Aşağıdan listeden çıkarabilirsin</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- İşlem Butonları -->
-        <div class="w-full flex items-center justify-between gap-3 mt-6">
-          <button id="diff-prev-btn" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition border border-slate-700 flex items-center gap-1.5" ${this.currentIndex === 0 ? 'disabled style="opacity: 0.5"' : ''}>
+        <!-- 1. Bağımsız Satır: Öğrendim / Listeden Çıkar Butonu (Metinlerin Altında Bağımsız Blok) -->
+        <div class="w-full max-w-md mt-6 flex justify-center">
+          <button id="diff-mastered-btn" class="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-sm font-bold shadow-xl shadow-emerald-600/30 transition transform active:scale-95 flex items-center justify-center gap-2 border border-emerald-400/40">
+            <i data-lucide="check-circle-2" class="w-5 h-5 text-white"></i>
+            <span>Öğrendim / Listeden Çıkar</span>
+          </button>
+        </div>
+
+        <!-- 2. Bağımsız Satır: Sabit ve Temiz Alt Gezinme Çubuğu (< Önceki, > Sonraki) -->
+        <div class="w-full max-w-md flex items-center justify-between gap-4 mt-4 pt-3 border-t border-slate-800/90">
+          <button id="diff-prev-btn" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold transition border border-slate-700 flex items-center gap-2 shadow-sm" ${this.currentIndex === 0 ? 'disabled style="opacity: 0.4"' : ''}>
             <i data-lucide="chevron-left" class="w-4 h-4"></i> Önceki
           </button>
 
-          <button id="diff-mastered-btn" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold shadow-lg shadow-emerald-600/30 transition flex items-center gap-2 transform active:scale-95">
-            <i data-lucide="check" class="w-4 h-4"></i> Öğrendim / Listeden Çıkar
-          </button>
+          <span class="text-xs text-slate-400 font-mono font-medium">${this.currentIndex + 1} / ${this.words.length}</span>
 
-          <button id="diff-next-btn" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition border border-slate-700 flex items-center gap-1.5" ${this.currentIndex === this.words.length - 1 ? 'disabled style="opacity: 0.5"' : ''}>
+          <button id="diff-next-btn" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold transition border border-slate-700 flex items-center gap-2 shadow-sm" ${this.currentIndex === this.words.length - 1 ? 'disabled style="opacity: 0.4"' : ''}>
             Sonraki <i data-lucide="chevron-right" class="w-4 h-4"></i>
           </button>
         </div>
@@ -1062,12 +1090,10 @@ class DifficultWordsGame {
     const prevBtn = document.getElementById('diff-prev-btn');
     const nextBtn = document.getElementById('diff-next-btn');
     const masteredBtn = document.getElementById('diff-mastered-btn');
-    const quickLearnBtn = document.getElementById('diff-card-quick-learn-btn');
-    const quickLearnBackBtn = document.getElementById('diff-card-back-quick-learn-btn');
 
     if (card) {
       card.addEventListener('click', (e) => {
-        if (e.target.closest('#diff-listen-btn') || e.target.closest('#diff-card-quick-learn-btn') || e.target.closest('#diff-card-back-quick-learn-btn')) return;
+        if (e.target.closest('#diff-listen-btn')) return;
         this.isFlipped = !this.isFlipped;
         card.classList.toggle('flipped', this.isFlipped);
         AudioService.playSfx('click');
@@ -1121,12 +1147,6 @@ class DifficultWordsGame {
 
     if (masteredBtn) {
       masteredBtn.addEventListener('click', handleLearnWord);
-    }
-    if (quickLearnBtn) {
-      quickLearnBtn.addEventListener('click', handleLearnWord);
-    }
-    if (quickLearnBackBtn) {
-      quickLearnBackBtn.addEventListener('click', handleLearnWord);
     }
   }
 
