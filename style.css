@@ -7,10 +7,16 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Arka plan ve temel geçişler */
+/* Arka plan ve temel geçişler (Mobil Akıcı Dikey Kaydırma & Sıfır Yatay Taşma) */
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 body {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  overflow-x: hidden;
   overscroll-behavior-y: contain;
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -271,14 +277,14 @@ h1, h2, h3, h4, h5, h6, .font-display {
   animation: pulseCorrect 0.35s ease;
 }
 
-/* Eşleştirme Kartları */
+/* Eşleştirme Kartları (Mobil Uyumlu & Esnek Padding) */
 .match-card {
-  min-height: 3.5rem;
+  min-height: 3.25rem;
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 0.75rem 1rem;
+  padding: 0.625rem 0.75rem;
   font-weight: 600;
   border-radius: 0.75rem;
   cursor: pointer;
@@ -286,6 +292,7 @@ h1, h2, h3, h4, h5, h6, .font-display {
   user-select: none;
   width: 100%;
   position: relative;
+  word-break: break-word;
 }
 
 .match-card.unmatched {

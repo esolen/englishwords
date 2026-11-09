@@ -1510,37 +1510,35 @@ class MatchingGame {
           </button>
         </div>
 
-        <!-- Çift Sütunlu Sağlı-Sollu Düzen -->
-        <div class="w-full grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 items-start mb-6">
+        <!-- Çift Sütunlu Sağlı-Sollu Düzen (Mobil Uyumlu Grid: 2 Sütun, Dinamik Gap & Metin Boyutu) -->
+        <div class="w-full grid grid-cols-2 gap-2 sm:gap-4 md:gap-6 items-start mb-6">
           <!-- Sol Sütun: İngilizce -->
-          <div class="flex flex-col gap-3">
-            <div class="flex items-center justify-between px-2 pb-1 border-b border-slate-700/60">
-              <span class="text-xs font-semibold tracking-wider text-blue-400 uppercase flex items-center gap-1.5">
-                <i data-lucide="globe" class="w-3.5 h-3.5"></i> İngilizce Kelimeler
+          <div class="flex flex-col gap-2 sm:gap-3">
+            <div class="flex items-center justify-between px-1 sm:px-2 pb-1 border-b border-slate-700/60">
+              <span class="text-[11px] sm:text-xs font-semibold tracking-wider text-blue-400 uppercase flex items-center gap-1">
+                <i data-lucide="globe" class="w-3 h-3 sm:w-3.5 sm:h-3.5"></i> İngilizce
               </span>
-              <span class="text-[11px] text-slate-400">Sol Taraf</span>
             </div>
-            <div class="flex flex-col gap-2.5" id="en-column">
+            <div class="flex flex-col gap-2 sm:gap-2.5" id="en-column">
               ${this.enCards.map(c => `
-                <div class="match-card ${c.matched ? 'matched-hidden' : 'unmatched'}" data-card-id="${c.id}" data-type="en">
-                  <span class="text-sm md:text-base font-semibold">${c.text}</span>
+                <div class="match-card ${c.matched ? 'matched-hidden' : 'unmatched'} p-2.5 sm:p-3.5 rounded-xl border flex items-center justify-center text-center select-none cursor-pointer transition shadow-sm" data-card-id="${c.id}" data-type="en">
+                  <span class="text-xs sm:text-sm md:text-base font-semibold break-words leading-tight">${c.text}</span>
                 </div>
               `).join('')}
             </div>
           </div>
 
           <!-- Sağ Sütun: Türkçe -->
-          <div class="flex flex-col gap-3">
-            <div class="flex items-center justify-between px-2 pb-1 border-b border-slate-700/60">
-              <span class="text-xs font-semibold tracking-wider text-emerald-400 uppercase flex items-center gap-1.5">
-                <i data-lucide="languages" class="w-3.5 h-3.5"></i> Türkçe Karşılıkları
+          <div class="flex flex-col gap-2 sm:gap-3">
+            <div class="flex items-center justify-between px-1 sm:px-2 pb-1 border-b border-slate-700/60">
+              <span class="text-[11px] sm:text-xs font-semibold tracking-wider text-emerald-400 uppercase flex items-center gap-1">
+                <i data-lucide="languages" class="w-3 h-3 sm:w-3.5 sm:h-3.5"></i> Türkçe
               </span>
-              <span class="text-[11px] text-slate-400">Sağ Taraf</span>
             </div>
-            <div class="flex flex-col gap-2.5" id="tr-column">
+            <div class="flex flex-col gap-2.5 sm:gap-2.5" id="tr-column">
               ${this.trCards.map(c => `
-                <div class="match-card ${c.matched ? 'matched-hidden' : 'unmatched'}" data-card-id="${c.id}" data-type="tr">
-                  <span class="text-sm md:text-base font-semibold">${c.text}</span>
+                <div class="match-card ${c.matched ? 'matched-hidden' : 'unmatched'} p-2.5 sm:p-3.5 rounded-xl border flex items-center justify-center text-center select-none cursor-pointer transition shadow-sm" data-card-id="${c.id}" data-type="tr">
+                  <span class="text-xs sm:text-sm md:text-base font-semibold break-words leading-tight">${c.text}</span>
                 </div>
               `).join('')}
             </div>
