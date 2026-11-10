@@ -4254,20 +4254,33 @@ class StepByStepLessonsGame {
           return;
         }
 
-        // Yerel simülasyon
+        // Yerel YDS zorluk algoritmasıyla 5000 kelimeden rastgele kademeli seçim
+        const sortedPool = [...words].sort((a, b) => {
+          const scoreA = a.en.length * 10 + (/[aeiou]{2,}/i.test(a.en) ? 15 : 0) + (/(tion|ment|ance|ence|ible|able|ity)$/i.test(a.en) ? 25 : 0);
+          const scoreB = b.en.length * 10 + (/[aeiou]{2,}/i.test(b.en) ? 15 : 0) + (/(tion|ment|ance|ence|ible|able|ity)$/i.test(b.en) ? 25 : 0);
+          return scoreA - scoreB;
+        });
+
+        const total = sortedPool.length;
+        const bucketSize = Math.max(10, Math.floor(total / 10));
+        const bucketIdx = Math.min(9, Math.floor((levelNum - 1) % 10));
+        const start = Math.min(bucketIdx * bucketSize, Math.max(0, total - 10));
+        const slice = sortedPool.slice(start, Math.min(start + bucketSize + 10, total));
+        const selectedSample = getRandomSample(slice.length >= 10 ? slice : sortedPool, 10);
+
         this.lessonData = {
           level_number: levelNum,
-          words_data: words.slice(0, 10).map((w, i) => ({
+          words_data: selectedSample.map((w, i) => ({
             index: i + 1,
             english: w.en,
             turkish: w.tr,
             pronunciation: w.ipa || '',
-            example_en: `She made a continuous effort to understand ${w.en} in everyday life.`,
-            example_tr: `Günlük hayatta ${w.tr} kavramını anlamak için sürekli çaba gösterdi.`
+            example_en: `In academic and daily contexts, understanding ${w.en} is very important.`,
+            example_tr: `Akademik ve günlük bağlamda ${w.tr} kavramını anlamak oldukça önemlidir.`
           })),
-          quiz_data: words.slice(0, 10).map((w, i) => {
+          quiz_data: selectedSample.map((w, i) => {
             const others = words.filter(item => item.en !== w.en);
-            const shuffledOthers = shuffleArray(others).slice(0, 4);
+            const shuffledOthers = getRandomSample(others, 4);
             const optionsRaw = shuffleArray([
               { text: w.en, correct: true },
               ...shuffledOthers.map(o => ({ text: o.en, correct: false }))
@@ -4277,7 +4290,7 @@ class StepByStepLessonsGame {
             const correctLetter = options.find(o => o.text === w.en).key;
             return {
               question_number: i + 1,
-              sentence: `It is important to remember .................... (${w.tr}) during our studies.`,
+              sentence: `Scientists observed that .................... plays a significant role in this process.`,
               target_word: w.en,
               turkish_meaning: w.tr,
               options: options,
