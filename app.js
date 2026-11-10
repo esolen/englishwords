@@ -4222,10 +4222,14 @@ const AuthStore = {
     const gateView = document.getElementById('auth-gate-view');
     const appContainer = document.getElementById('app-authenticated-container');
     const usernameDisplay = document.getElementById('header-username-display');
+    const inlineUsernameDisplay = document.getElementById('inline-username-display');
     if (gateView) gateView.classList.add('hidden');
     if (appContainer) appContainer.classList.remove('hidden');
     if (usernameDisplay && this.user) {
       usernameDisplay.textContent = this.user.username;
+    }
+    if (inlineUsernameDisplay && this.user) {
+      inlineUsernameDisplay.textContent = this.user.username;
     }
     updateHeaderBadges();
   },
@@ -4297,14 +4301,21 @@ const AuthStore = {
       });
     }
 
+    const handleLogout = () => {
+      this.user = null;
+      localStorage.removeItem(this.USER_STORAGE_KEY);
+      WordStore.setWords([]);
+      this.showGate();
+      showToast('Oturum kapatıldı.', 'info');
+    };
+
     if (logoutBtn) {
-      logoutBtn.addEventListener('click', () => {
-        this.user = null;
-        localStorage.removeItem(this.USER_STORAGE_KEY);
-        WordStore.setWords([]);
-        this.showGate();
-        showToast('Oturum kapatıldı.', 'info');
-      });
+      logoutBtn.addEventListener('click', handleLogout);
+    }
+
+    const inlineLogoutBtn = document.getElementById('inline-logout-btn');
+    if (inlineLogoutBtn) {
+      inlineLogoutBtn.addEventListener('click', handleLogout);
     }
   },
 
