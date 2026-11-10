@@ -6,15 +6,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
   <title>İngilizce Kelime Dünyası - Oyunlarla İngilizce Öğren</title>
 
-  <!-- PWA & Web App Manifest -->
-  <link rel="manifest" href="/manifest.json">
+  <!-- PWA & Web App Manifest (Cache Busting v=2.0) -->
+  <link rel="manifest" href="/manifest.json?v=2.0">
   <meta name="theme-color" content="#1e40af">
 
   <!-- iOS Apple App Standartları -->
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="KelimeEzber">
-  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="apple-touch-icon" href="/icon-192.png?v=2.0">
 
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -26,7 +26,8 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <!-- Tesseract.js (El Yazısı OCR Motoru) CDN -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <link rel="stylesheet" href="style.css">
+  <!-- Yerel Stiller (Cache Busting v=2.0) -->
+  <link rel="stylesheet" href="style.css?v=2.0">
   <script>
     tailwind.config = {
       theme: {
@@ -754,6 +755,7 @@
   <!-- Bildirim / Toast Kapsayıcısı -->
   <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
 
-  <script src="app.js"></script>
+  <!-- Yerel Uygulama Scripti (Cache Busting v=2.0) -->
+  <script src="app.js?v=2.0"></script>
 </body>
 </html>
