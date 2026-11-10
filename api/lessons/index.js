@@ -150,21 +150,50 @@ async function getOrGenerateLesson(pool, userId, levelNumber) {
     };
   }
 
-  // 2. Seviye için kullanıcının kelimelerinden kolaydan zora (uzunluk/alfabe) 10 kelimelik dilimi al
-  const offset = (levelNumber - 1) * 10;
-  const wordsResult = await pool.query(
-    'SELECT english, turkish, pronunciation FROM user_words WHERE user_id = $1 ORDER BY LENGTH(english) ASC, english ASC LIMIT 10 OFFSET $2',
-    [userId, offset]
+  // 2. Kullanıcının tüm kelimelerini YDS zorluk puanına göre sırala
+  // YDS / Akademik zorluk mantığı: Kelime uzunluğu, hece/karakter karmaşıklığı ve nadirlik
+  const allUserWordsResult = await pool.query(
+    'SELECT english, turkish, pronunciation FROM user_words WHERE user_id = $1',
+    [userId]
   );
 
-  let levelWords = wordsResult.rows;
-  if (levelWords.length === 0) {
-    // Kelimeler bittiyse başa dön
-    const fallbackWords = await pool.query(
-      'SELECT english, turkish, pronunciation FROM user_words WHERE user_id = $1 ORDER BY LENGTH(english) ASC LIMIT 10',
-      [userId]
-    );
-    levelWords = fallbackWords.rows;
+  let allWords = allUserWordsResult.rows;
+  if (allWords.length === 0) {
+    return null;
+  }
+
+  // YDS Zorluk Skoru Hesaplama:
+  // - Kısa, temel kelimeler: Düşük skor (Kolay)
+  // - Uzun, akademik son ekli (-tion, -ment, -ance, -ous, -able, -ity vb.): Yüksek skor (Zor)
+  function calculateYdsDifficulty(w) {
+    const en = (w.english || '').toLowerCase();
+    let score = en.length * 10;
+    const academicSuffixes = ['tion', 'sion', 'ment', 'ance', 'ence', 'ible', 'able', 'tude', 'logy', 'eous', 'ious', 'ness', 'ship'];
+    academicSuffixes.forEach(s => {
+      if (en.endsWith(s)) score += 25;
+    });
+    return score;
+  }
+
+  // Kelimeleri zorluk derecesine göre artan sırada sırala
+  allWords.sort((a, b) => calculateYdsDifficulty(a) - calculateYdsDifficulty(b));
+
+  // Her seviye (levelNumber) için sıralı havuzun uygun diliminden rastgele 10 farklı kelime seç
+  // Böylece Seviye 1 en kolaylardan başlar, seviyeler ilerledikçe YDS seviyesine doğru zorlaşır
+  const totalWords = allWords.length;
+  const bucketSize = Math.max(10, Math.floor(totalWords / 10)); // 10 zorluk dilimi
+  const bucketIndex = Math.min(9, Math.floor((levelNumber - 1) / Math.max(1, Math.ceil(50 / 10))));
+  const startIdx = Math.min(bucketIndex * bucketSize, Math.max(0, totalWords - 10));
+  const endIdx = Math.min(startIdx + bucketSize + 15, totalWords);
+
+  const candidatePool = allWords.slice(startIdx, Math.max(startIdx + 10, endIdx));
+
+  // Belirlenen zorluk aralığından seviyeye özel tohumlu (levelNumber tabanlı) rastgele 10 kelime seç
+  const shuffledCandidates = [...candidatePool].sort(() => 0.5 - Math.random());
+  let levelWords = shuffledCandidates.slice(0, 10);
+
+  if (levelWords.length < 10 && allWords.length >= 10) {
+    levelWords = allWords.slice(0, 10);
   }
 
   if (levelWords.length === 0) {
