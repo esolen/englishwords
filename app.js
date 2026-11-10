@@ -628,6 +628,8 @@ function setupModals() {
 
         if (filter === 'all') {
           card.classList.remove('hidden');
+        } else if (filter === 'lessons') {
+          card.classList.toggle('hidden', gameId !== 'step-by-step-lessons');
         } else if (filter === 'classic') {
           card.classList.toggle('hidden', !['flashcards', 'multiple-choice', 'difficult-words', 'true-false'].includes(gameId));
         } else if (filter === 'interactive') {
@@ -4178,7 +4180,394 @@ GAMES['word-defense'] = WordDefenseGame;
 GAMES['word-funnel'] = WordFunnelGame;
 GAMES['shadow-listening'] = ShadowListeningGame;
 
+// ============================================================================
+// MODÜL: KOLAYDAN ZORA (STEP BY STEP LESSONS & 5-CHOICE QUIZ)
+// ============================================================================
+class StepByStepLessonsGame {
+  constructor() {
+    this.currentLevel = 1;
+    this.activeStage = 'learn'; // 'learn' veya 'quiz'
+    this.lessonData = null;
+    this.quizIndex = 0;
+    this.selectedAnswers = {};
+    this.score = 0;
+    this.wrongWords = [];
+    this.isLoading = false;
+  }
+
+  async init() {
+    setGameHeader('Kolaydan Zora', 'Kelimeleri örnek cümlelerle öğren ve 5 şıklı testle seviye atla');
+    await this.loadLevelData(this.currentLevel);
+  }
+
+  async loadLevelData(levelNum) {
+    const stage = document.getElementById('game-stage');
+    if (!stage) return;
+
+    this.isLoading = true;
+    stage.innerHTML = `
+      <div class="flex flex-col items-center justify-center p-8 space-y-3">
+        <div class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+        <span class="text-white font-bold text-sm tracking-wide">Seviye ${levelNum} Hazırlanıyor...</span>
+        <span class="text-xs text-slate-400">Veritabanı kontrol ediliyor</span>
+      </div>
+    `;
+
+    try {
+      let data = null;
+      try {
+        const userId = AuthStore.user ? AuthStore.user.id : 1;
+        const resp = await fetch(`/api/lessons?user_id=${userId}&level=${levelNum}`);
+        if (resp.ok) {
+          data = await resp.json();
+        }
+      } catch (netErr) {
+        // Offline or preview fallback
+      }
+
+      if (data && data.success && data.lesson) {
+        this.lessonData = data.lesson;
+        this.currentLevel = data.lesson.level_number || levelNum;
+        if (data.user_level) {
+          const badge = document.getElementById('user-current-level-badge');
+          if (badge) badge.textContent = `Seviye ${data.user_level}`;
+        }
+        this.activeStage = 'learn';
+        this.renderLearnStage();
+      } else {
+        // Fallback: Yerel kelimelerden dinamik oluştur
+        const words = WordStore.getWords();
+        if (words.length < 5) {
+          stage.innerHTML = `
+            <div class="text-center p-8 max-w-md">
+              <div class="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 mx-auto flex items-center justify-center mb-4">
+                <i data-lucide="alert-circle" class="w-8 h-8"></i>
+              </div>
+              <h3 class="text-xl font-bold font-display text-white mb-2">Yeterli Kelime Yok</h3>
+              <p class="text-slate-400 text-sm mb-6">Kolaydan Zora modunu oynayabilmek için kelime havuzunuza en az 5-10 kelime eklemelisiniz.</p>
+              <button onclick="closeGame()" class="px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-medium text-sm transition">
+                Menüye Dön
+              </button>
+            </div>
+          `;
+          if (window.lucide) window.lucide.createIcons();
+          return;
+        }
+
+        // Yerel simülasyon
+        this.lessonData = {
+          level_number: levelNum,
+          words_data: words.slice(0, 10).map((w, i) => ({
+            index: i + 1,
+            english: w.en,
+            turkish: w.tr,
+            pronunciation: w.ipa || '',
+            example_en: `She made a continuous effort to understand ${w.en} in everyday life.`,
+            example_tr: `Günlük hayatta ${w.tr} kavramını anlamak için sürekli çaba gösterdi.`
+          })),
+          quiz_data: words.slice(0, 10).map((w, i) => {
+            const others = words.filter(item => item.en !== w.en);
+            const shuffledOthers = shuffleArray(others).slice(0, 4);
+            const optionsRaw = shuffleArray([
+              { text: w.en, correct: true },
+              ...shuffledOthers.map(o => ({ text: o.en, correct: false }))
+            ]);
+            const letters = ['a', 'b', 'c', 'd', 'e'];
+            const options = optionsRaw.map((opt, oIdx) => ({ key: letters[oIdx] || 'a', text: opt.text }));
+            const correctLetter = options.find(o => o.text === w.en).key;
+            return {
+              question_number: i + 1,
+              sentence: `It is important to remember .................... (${w.tr}) during our studies.`,
+              target_word: w.en,
+              turkish_meaning: w.tr,
+              options: options,
+              correct_answer: correctLetter
+            };
+          })
+        };
+        this.activeStage = 'learn';
+        this.renderLearnStage();
+      }
+    } catch (e) {
+      console.warn('Lesson fetch error:', e);
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  // AŞAMA 1: ÖĞRENME EKRANI (1. Görseldeki Yapı)
+  renderLearnStage() {
+    const stage = document.getElementById('game-stage');
+    if (!stage || !this.lessonData) return;
+
+    const wordsList = this.lessonData.words_data || [];
+
+    stage.innerHTML = `
+      <div class="w-full max-w-2xl flex flex-col items-center">
+        <!-- Üst Seviye Başlığı -->
+        <div class="w-full flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-emerald-950/60 to-slate-900 border border-emerald-500/30 mb-6 shadow-lg">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold font-mono">
+              ${this.currentLevel}
+            </div>
+            <div>
+              <h3 class="font-display font-bold text-white text-base sm:text-lg flex items-center gap-2">
+                <span>Seviye ${this.currentLevel} Kelime Dersi</span>
+                <span class="text-xs font-normal text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">Aşama 1: Öğrenme</span>
+              </h3>
+              <p class="text-xs text-slate-400">Aşağıdaki 10 kelimeyi ve örnek cümleleri dikkatlice inceleyin</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 10 Kelimelik Liste (1. DAILY: GÜNLÜK, ✓ Örnek İngilizce, ➔ Örnek Türkçe) -->
+        <div class="w-full space-y-4 mb-8" id="lesson-words-list">
+          ${wordsList.map(item => `
+            <div class="p-4 rounded-2xl bg-slate-800/80 border border-slate-700/80 shadow-md hover:border-emerald-500/40 transition">
+              <!-- Başlık Satırı: 1. DAILY: GÜNLÜK -->
+              <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-700/50">
+                <div class="flex items-center gap-2">
+                  <span class="font-mono text-emerald-400 font-bold text-sm">${item.index || 1}.</span>
+                  <span class="font-display font-extrabold text-white text-base sm:text-lg tracking-wide uppercase">${item.english}</span>
+                  <span class="text-slate-400 font-bold">:</span>
+                  <span class="font-display font-bold text-emerald-300 text-sm sm:text-base uppercase">${item.turkish}</span>
+                  ${item.pronunciation ? `<span class="text-xs font-mono text-slate-400 hidden sm:inline">[${item.pronunciation}]</span>` : ''}
+                </div>
+                <button onclick="AudioService.speak('${item.english.replace(/'/g, "\\'")}')" class="p-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Telaffuzu Dinle">
+                  <i data-lucide="volume-2" class="w-4 h-4 text-emerald-400"></i>
+                </button>
+              </div>
+
+              <!-- Doğal İngilizce Örnek Cümle (✓) -->
+              <div class="flex items-start gap-2 text-xs sm:text-sm text-slate-200 mb-1.5 pl-1">
+                <span class="text-emerald-400 font-bold mt-0.5">✓</span>
+                <p class="leading-relaxed font-sans">${item.example_en}</p>
+              </div>
+
+              <!-- Tam Türkçe Çevirisi (➔) -->
+              <div class="flex items-start gap-2 text-xs sm:text-sm text-slate-400 pl-1">
+                <span class="text-amber-400 font-bold mt-0.5">➔</span>
+                <p class="leading-relaxed">${item.example_tr}</p>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <!-- En Altta: Kelimeleri Öğrendim, Teste Geç Butonu -->
+        <div class="w-full flex justify-center pb-6">
+          <button id="start-quiz-stage-btn" class="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm sm:text-base shadow-xl shadow-emerald-600/30 transition transform active:scale-95 flex items-center justify-center gap-2 border border-emerald-400/40">
+            <span>Kelimeleri Öğrendim, Teste Geç</span>
+            <i data-lucide="arrow-right" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+    `;
+
+    if (window.lucide) window.lucide.createIcons();
+
+    const startQuizBtn = document.getElementById('start-quiz-stage-btn');
+    if (startQuizBtn) {
+      startQuizBtn.addEventListener('click', () => {
+        AudioService.playSfx('click');
+        this.activeStage = 'quiz';
+        this.quizIndex = 0;
+        this.selectedAnswers = {};
+        this.score = 0;
+        this.wrongWords = [];
+        this.renderQuizStage();
+      });
+    }
+  }
+
+  // AŞAMA 2: 5 ŞIKLI BOŞLUK DOLDURMA TESTİ (2. Görseldeki Yapı)
+  renderQuizStage() {
+    const stage = document.getElementById('game-stage');
+    if (!stage || !this.lessonData) return;
+
+    const quizList = this.lessonData.quiz_data || [];
+    const currentQ = quizList[this.quizIndex];
+
+    if (!currentQ) {
+      this.renderQuizResults();
+      return;
+    }
+
+    updateGameScore(this.score);
+
+    stage.innerHTML = `
+      <div class="w-full max-w-xl flex flex-col items-center">
+        <!-- İlerleme ve Seviye Barı -->
+        <div class="w-full flex items-center justify-between text-xs text-slate-400 mb-2 px-1">
+          <span>Soru ${this.quizIndex + 1} / ${quizList.length} (Seviye ${this.currentLevel})</span>
+          <span class="text-emerald-400 font-bold">Doğru: ${this.score}</span>
+        </div>
+        <div class="w-full h-1.5 bg-slate-700 rounded-full mb-6 overflow-hidden">
+          <div class="h-full bg-emerald-500 transition-all duration-300" style="width: ${((this.quizIndex + 1) / quizList.length) * 100}%"></div>
+        </div>
+
+        <!-- Soru Kartı: Boşluk Doldurma Cümlesi -->
+        <div class="w-full bg-slate-800/90 border border-slate-700 rounded-2xl p-6 sm:p-8 text-center shadow-xl mb-6">
+          <span class="text-xs uppercase tracking-widest text-emerald-400 font-semibold mb-3 block">
+            Cümledeki Boşluğu Tamamlayın
+          </span>
+          <p class="text-lg sm:text-2xl font-bold text-white font-display leading-relaxed mb-4">
+            ${currentQ.sentence}
+          </p>
+          <div class="inline-flex items-center gap-1.5 text-xs text-slate-400 bg-slate-900/60 px-3 py-1.5 rounded-lg border border-slate-800">
+            <span>Türkçe İpucu:</span>
+            <strong class="text-emerald-300">${currentQ.turkish_meaning}</strong>
+          </div>
+        </div>
+
+        <!-- 5 Şıklı Seçenekler [a, b, c, d, e] -->
+        <div class="w-full space-y-2.5 mb-6" id="five-choice-options-container">
+          ${(currentQ.options || []).map(opt => `
+            <button class="w-full p-3.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-white font-medium text-sm sm:text-base border border-slate-700 flex items-center justify-between transition five-choice-btn group shadow-sm" data-key="${opt.key}">
+              <div class="flex items-center gap-3">
+                <span class="w-7 h-7 rounded-lg bg-slate-700 text-xs font-mono font-bold flex items-center justify-center text-slate-300 group-hover:bg-emerald-600 group-hover:text-white transition uppercase">${opt.key}</span>
+                <span class="text-slate-100 font-semibold">${opt.text}</span>
+              </div>
+              <i data-lucide="circle" class="w-4 h-4 text-slate-500 option-check-icon"></i>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    if (window.lucide) window.lucide.createIcons();
+    this.bindQuizEvents(currentQ, quizList);
+  }
+
+  bindQuizEvents(currentQ, quizList) {
+    const optionBtns = document.querySelectorAll('.five-choice-btn');
+
+    optionBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        optionBtns.forEach(b => b.disabled = true);
+        const selectedKey = btn.getAttribute('data-key');
+        const isCorrect = selectedKey.toLowerCase() === currentQ.correct_answer.toLowerCase();
+
+        if (isCorrect) {
+          btn.classList.remove('bg-slate-800/80', 'border-slate-700');
+          btn.classList.add('bg-emerald-600/30', 'border-emerald-500', 'text-emerald-300');
+          this.score++;
+          AudioService.playSfx('correct');
+        } else {
+          btn.classList.remove('bg-slate-800/80', 'border-slate-700');
+          btn.classList.add('bg-rose-600/30', 'border-rose-500', 'text-rose-300');
+          this.wrongWords.push(currentQ.target_word);
+          AudioService.playSfx('wrong');
+
+          // Doğru şıkkı göster
+          optionBtns.forEach(b => {
+            if (b.getAttribute('data-key').toLowerCase() === currentQ.correct_answer.toLowerCase()) {
+              b.classList.add('bg-emerald-600/30', 'border-emerald-500', 'text-emerald-300');
+            }
+          });
+        }
+
+        setTimeout(() => {
+          if (this.quizIndex < quizList.length - 1) {
+            this.quizIndex++;
+            this.renderQuizStage();
+          } else {
+            this.renderQuizResults();
+          }
+        }, 1100);
+      });
+    });
+  }
+
+  async renderQuizResults() {
+    const stage = document.getElementById('game-stage');
+    if (!stage) return;
+
+    const isLevelPassed = this.score >= 7;
+    const userId = AuthStore.user ? AuthStore.user.id : 1;
+
+    // Arka planda sunucuya sonucu bildir (Asenkron persist)
+    try {
+      fetch('/api/lessons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          level_number: this.currentLevel,
+          correct_count: this.score,
+          wrong_words: this.wrongWords
+        })
+      });
+    } catch (e) {
+      console.warn('Lesson complete sync error:', e);
+    }
+
+    if (isLevelPassed) {
+      AudioService.playSfx('win');
+      const badge = document.getElementById('user-current-level-badge');
+      if (badge) badge.textContent = `Seviye ${this.currentLevel + 1}`;
+    }
+
+    stage.innerHTML = `
+      <div class="text-center p-6 max-w-md animate-pop">
+        <div class="w-16 h-16 rounded-2xl ${isLevelPassed ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'} mx-auto flex items-center justify-center mb-4">
+          <i data-lucide="${isLevelPassed ? 'trophy' : 'alert-circle'}" class="w-8 h-8"></i>
+        </div>
+        <h3 class="text-2xl font-bold font-display text-white mb-2">
+          ${isLevelPassed ? 'Tebrikler! Seviyeyi Geçtiniz!' : 'Tekrar Deneyin!'}
+        </h3>
+        <p class="text-slate-300 text-sm mb-4">
+          10 sorudan <strong class="${isLevelPassed ? 'text-emerald-400' : 'text-rose-400'} font-bold font-mono text-base">${this.score} doğru</strong> yaptınız.
+          ${isLevelPassed ? `Seviye ${this.currentLevel + 1} kilidi açıldı!` : 'Seviyeyi geçmek için en az 7 doğru yapmalısınız.'}
+        </p>
+
+        ${this.wrongWords.length > 0 ? `
+          <div class="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 mb-6 text-left">
+            <strong>Zorlu Kelimelere Eklendi:</strong> ${this.wrongWords.join(', ')}
+          </div>
+        ` : ''}
+
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
+          ${isLevelPassed ? `
+            <button id="next-level-btn" class="w-full sm:w-auto px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-600/30 transition">
+              Sonraki Seviyeye Geç (Seviye ${this.currentLevel + 1}) &rarr;
+            </button>
+          ` : `
+            <button id="retry-level-btn" class="w-full sm:w-auto px-6 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm shadow-lg shadow-amber-600/30 transition">
+              Kelimeleri Tekrar Çalış
+            </button>
+          `}
+          <button onclick="closeGame()" class="w-full sm:w-auto px-5 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700 transition">
+            Menüye Dön
+          </button>
+        </div>
+      </div>
+    `;
+
+    if (window.lucide) window.lucide.createIcons();
+
+    const nextLevelBtn = document.getElementById('next-level-btn');
+    if (nextLevelBtn) {
+      nextLevelBtn.addEventListener('click', () => {
+        this.loadLevelData(this.currentLevel + 1);
+      });
+    }
+
+    const retryBtn = document.getElementById('retry-level-btn');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', () => {
+        this.activeStage = 'learn';
+        this.renderLearnStage();
+      });
+    }
+  }
+
+  destroy() {
+    this.isLoading = false;
+  }
+}
+
 // GAMES Tablosuna Kaydet
+GAMES['step-by-step-lessons'] = StepByStepLessonsGame;
 GAMES['flashcards'] = FlashcardsGame;
 GAMES['multiple-choice'] = MultipleChoiceGame;
 GAMES['difficult-words'] = DifficultWordsGame;

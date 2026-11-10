@@ -59,8 +59,11 @@ async function ensureTables() {
       game_type VARCHAR(100) NOT NULL,
       score INTEGER DEFAULT 0,
       wrong_words JSONB DEFAULT '[]'::jsonb,
+      current_level INTEGER DEFAULT 1,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
+
+    ALTER TABLE user_statistics ADD COLUMN IF NOT EXISTS current_level INTEGER DEFAULT 1;
 
     CREATE INDEX IF NOT EXISTS idx_user_stats_user_game ON user_statistics(user_id, game_type);
 
@@ -73,6 +76,16 @@ async function ensureTables() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_user_study_list_uid ON user_study_list(user_id);
+
+    CREATE TABLE IF NOT EXISTS generated_lessons (
+      id SERIAL PRIMARY KEY,
+      level_number INTEGER UNIQUE NOT NULL,
+      words_data JSONB NOT NULL,
+      quiz_data JSONB NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_generated_lessons_level ON generated_lessons(level_number);
   `;
 
   await p.query(createQuery);
