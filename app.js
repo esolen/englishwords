@@ -4255,24 +4255,22 @@ class StepByStepLessonsGame {
           return;
         }
 
-        // Yerel YDS zorluk algoritmasıyla sıralama:
-        // 1. Kısa tek kelimeler (3-5 harf)
-        // 2. Orta uzunlukta kelimeler (6-8 harf)
-        // 3. Uzun akademik YDS kelimeleri (9+ harf) ve boşluk içeren deyimler
-        function getYdsScore(w) {
+        // Yerel CEFR / YDS Zorluk Sınıflandırması (A1-A2 Başlangıç, B1-B2 Orta, C1-C2 Akademik)
+        const commonA1A2 = new Set(['daily', 'study', 'accept', 'achieve', 'improve', 'decide', 'important', 'modern', 'learn', 'create']);
+        function getCefrYdsScore(w) {
           const en = (w.en || '').trim().toLowerCase();
-          let score = en.includes(' ') ? 150 : 0;
-          score += en.replace(/\s+/g, '').length * 10;
+          const cleanLen = en.replace(/\s+/g, '').length;
+          let score = 50;
+          if (cleanLen <= 3 && !commonA1A2.has(en)) score += 80;
+          if (commonA1A2.has(en)) score -= 30;
+          if (en.includes(' ')) score += 120;
+          score += cleanLen * 4;
           const suffixes = ['tion', 'sion', 'ment', 'ance', 'ence', 'ible', 'able', 'tude', 'logy', 'eous', 'ious', 'ness', 'ship', 'ical'];
-          suffixes.forEach(s => {
-            if (en.endsWith(s)) score += 30;
-          });
+          suffixes.forEach(s => { if (en.endsWith(s)) score += 20; });
           return score;
         }
 
-        const sortedPool = [...words].sort((a, b) => getYdsScore(a) - getYdsScore(b));
-
-        // Tamamlanmış kelimeleri hariç tutarak ilerle
+        const sortedPool = [...words].sort((a, b) => getCefrYdsScore(a) - getCefrYdsScore(b));
         const completedSet = this.completedWordsSet || new Set();
         let candidatePool = sortedPool.filter(w => !completedSet.has(w.en.toLowerCase()));
 
@@ -4280,20 +4278,38 @@ class StepByStepLessonsGame {
           candidatePool = sortedPool;
         }
 
-        const offset = Math.min((levelNum - 1) * 10, Math.max(0, candidatePool.length - 10));
-        const selectedSample = candidatePool.slice(offset, offset + 10);
+        // Seviye aralığından rastgele 10 kelime seç (Sabit alfabetik sıralama tamamen kaldırıldı)
+        const tier = Math.min(2, Math.floor((levelNum - 1) / 3));
+        const tierSize = Math.max(10, Math.floor(candidatePool.length / 3));
+        const startIdx = tier * tierSize;
+        const endIdx = tier === 2 ? candidatePool.length : (tier + 1) * tierSize;
+        const tierSlice = candidatePool.slice(startIdx, Math.max(startIdx + 10, endIdx));
+        const selectedSample = getRandomSample(tierSlice.length >= 10 ? tierSlice : candidatePool, 10);
+
+        // Çeşitli ve Özgün Cümle Şablonları (Tek tip kalıp cümleler tamamen kaldırıldı)
+        const diverseTemplates = [
+          { en: (w) => `Consistent practice and ${w} will enhance your linguistic fluency.`, tr: (t) => `Düzenli pratik ve ${t}, dil akıcılığınızı artıracaktır.`, q: (t) => `Consistent practice and .................... (${t}) will enhance your linguistic fluency.` },
+          { en: (w) => `The council decided to ${w} transparent guidelines for all participants.`, tr: (t) => `Konsey, tüm katılımcılar için şeffaf yönergeleri ${t} kararı aldı.`, q: (t) => `The council decided to .................... (${t}) transparent guidelines for all participants.` },
+          { en: (w) => `A solid foundation in ${w} is recognized as an invaluable academic asset.`, tr: (t) => `Temel bir ${t} bilgisi, paha biçilmez bir akademik kazanım olarak kabul edilir.`, q: (t) => `A solid foundation in .................... (${t}) is recognized as an invaluable academic asset.` },
+          { en: (w) => `Researchers observed that effective ${w} significantly reduced operational errors.`, tr: (t) => `Araştırmacılar, etkili bir ${t} sürecinin operasyonel hataları belirgin şekilde azalttığını gözlemledi.`, q: (t) => `Researchers observed that effective .................... (${t}) significantly reduced operational errors.` },
+          { en: (w) => `It is crucial to ${w} appropriate methodology when addressing complex inquiries.`, tr: (t) => `Karmaşık soruları ele alırken uygun metodolojiyi ${t} hayati önem taşır.`, q: (t) => `It is crucial to .................... (${t}) appropriate methodology when addressing complex inquiries.` }
+        ];
 
         this.lessonData = {
           level_number: levelNum,
-          words_data: selectedSample.map((w, i) => ({
-            index: i + 1,
-            english: w.en,
-            turkish: w.tr,
-            pronunciation: w.ipa || '',
-            example_en: `In academic and daily contexts, understanding ${w.en} is very important.`,
-            example_tr: `Akademik ve günlük bağlamda ${w.tr} kavramını anlamak oldukça önemlidir.`
-          })),
+          words_data: selectedSample.map((w, i) => {
+            const tmpl = diverseTemplates[i % diverseTemplates.length];
+            return {
+              index: i + 1,
+              english: w.en,
+              turkish: w.tr,
+              pronunciation: w.ipa || '',
+              example_en: tmpl.en(w.en),
+              example_tr: tmpl.tr(w.tr)
+            };
+          }),
           quiz_data: selectedSample.map((w, i) => {
+            const tmpl = diverseTemplates[i % diverseTemplates.length];
             const others = words.filter(item => item.en !== w.en);
             const shuffledOthers = getRandomSample(others, 4);
             const optionsRaw = shuffleArray([
@@ -4305,7 +4321,7 @@ class StepByStepLessonsGame {
             const correctLetter = options.find(o => o.text === w.en).key;
             return {
               question_number: i + 1,
-              sentence: `Scientists observed that .................... plays a significant role in this process.`,
+              sentence: tmpl.q(w.tr),
               target_word: w.en,
               turkish_meaning: w.tr,
               options: options,

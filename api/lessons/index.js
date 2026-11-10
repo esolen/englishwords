@@ -1,51 +1,137 @@
 const https = require('https');
 const { getPool, ensureTables, parseBody } = require('../_db');
 
-// YDS / Akademik Zorluk Sıralaması Fonksiyonu:
-// 1. Kısa, tek kelimelik temel ifadeler (3-5 harf) en başta (Düşük Skor: 0 - 50)
-// 2. Orta uzunluktaki sıfat, zarf ve fiiller (6-8 harf) ortada (Orta Skor: 60 - 80)
-// 3. Uzun akademik YDS kelimeleri (9+ harf) ve birden fazla kelimeden oluşan deyimler/phrasal verbler en sonda (Yüksek Skor: 90+)
+// CEFR / YDS Yaygın Temel Kelime Havuzu (A1-A2 Başlangıç - Seviye 1 İçin)
+const COMMON_A1_A2 = new Set([
+  'daily', 'study', 'accept', 'achieve', 'improve', 'decide', 'important', 'modern',
+  'learn', 'begin', 'start', 'finish', 'create', 'change', 'choose', 'listen',
+  'speak', 'write', 'read', 'think', 'understand', 'remember', 'travel', 'follow',
+  'happen', 'provide', 'continue', 'include', 'expect', 'develop', 'require',
+  'simple', 'useful', 'future', 'friend', 'family', 'people', 'action', 'reason'
+]);
+
+// YDS / Akademik Bağlaçlar ve İleri Düzey İfadeler (C1-C2)
+const ACADEMIC_C1_C2 = new Set([
+  'furthermore', 'nevertheless', 'subsequently', 'notwithstanding', 'consequently',
+  'furthermore', 'moreover', 'nonetheless', 'predominantly', 'inevitably',
+  'comprehensive', 'sustainability', 'implementation', 'sophistication', 'accommodation'
+]);
+
+// YDS / CEFR Zorluk Derecelendirme Motoru:
+// Seviye 1 (A1-A2): 10 - 45 puan (Yaygın, günlük temel kelimeler; nadir 2-3 harfli arkaik kelimeler elenir)
+// Seviye 2 (B1-B2): 50 - 95 puan (Genel İngilizce, orta düzey sıfatlar ve fiiller)
+// Seviye 3+ (C1-C2 / YDS Akademik): 100+ puan (Akademik bağlaçlar, deyimler, phrasal verb'ler, soyut terimler)
 function calculateYdsDifficulty(wordObj) {
   const en = (wordObj.english || wordObj.en || '').trim().toLowerCase();
-  let score = 0;
+  const cleanLen = en.replace(/\s+/g, '').length;
+  let score = 50;
 
-  // Boşluk içeren deyimler veya phrasal verb'ler en zordur
-  if (en.includes(' ')) {
-    score += 150;
+  // 1. Çok nadir/arkaik 2-3 harfli kelimeleri (ox, ail, aye, rye vb.) Seviye 1'e sokmamak için yüksek ceza puanı ver
+  if (cleanLen <= 3 && !COMMON_A1_A2.has(en)) {
+    score += 80;
   }
 
-  // Harf uzunluğuna göre kademelendirme
-  const cleanLen = en.replace(/\s+/g, '').length;
-  score += cleanLen * 10;
+  // 2. Yaygın temel A1-A2 kelimelerine öncelik tanı (Seviye 1)
+  if (COMMON_A1_A2.has(en)) {
+    score -= 30;
+  }
 
-  // Akademik son ekler (YDS odaklı)
+  // 3. Çoklu kelimeler (Phrasal verbs, deyimler) C1-C2 YDS düzeyine taşınır
+  if (en.includes(' ')) {
+    score += 120;
+  }
+
+  // 4. İleri düzey akademik kelimeler / bağlaçlar
+  if (ACADEMIC_C1_C2.has(en)) {
+    score += 100;
+  }
+
+  // 5. Harf uzunluğu ve akademik son ekler
+  score += cleanLen * 4;
+
   const academicSuffixes = ['tion', 'sion', 'ment', 'ance', 'ence', 'ible', 'able', 'tude', 'logy', 'eous', 'ious', 'ness', 'ship', 'ical'];
   academicSuffixes.forEach(s => {
-    if (en.endsWith(s)) score += 30;
+    if (en.endsWith(s)) score += 20;
   });
 
   return score;
 }
 
-// Fallback Hızlı Ders Üreteci
-function generateFallbackLesson(levelWords, levelNumber) {
+// Çeşitli ve Doğal Cümle Kalıpları Havuzu (Her kelime için anlam ve bağlama özel dinamik çeşitlilik)
+const DIVERSE_PATTERNS = [
+  {
+    en: (en) => `Recent studies emphasize that consistent ${en} can lead to remarkable personal development.`,
+    tr: (tr) => `Son araştırmalar, tutarlı bir ${tr} sürecinin kayda değer bir kişisel gelişime yol açabileceğini vurguluyor.`,
+    q: (tr) => `Recent studies emphasize that consistent .................... (${tr}) can lead to remarkable personal development.`
+  },
+  {
+    en: (en) => `The committee decided to ${en} new strategies in order to overcome economic difficulties.`,
+    tr: (tr) => `Komite, ekonomik zorlukların üstesinden gelmek için yeni stratejileri ${tr} kararı aldı.`,
+    q: (tr) => `The committee decided to .................... (${tr}) new strategies in order to overcome economic difficulties.`
+  },
+  {
+    en: (en) => `Developing a clear understanding of ${en} will substantially help you in upcoming exams.`,
+    tr: (tr) => `Konuyla ilgili ${tr} bilgisini pekiştirmek, yaklaşan sınavlarda size büyük ölçüde yardımcı olacaktır.`,
+    q: (tr) => `Developing a clear understanding of .................... (${tr}) will substantially help you in upcoming exams.`
+  },
+  {
+    en: (en) => `Experts agree that ${en} is a fundamental pillar for establishing sustainable growth.`,
+    tr: (tr) => `Uzmanlar, sürdürülebilir büyüme sağlamak için ${tr} unsurunun temel bir yapı taşı olduğu konusunda hemfikir.`,
+    q: (tr) => `Experts agree that .................... (${tr}) is a fundamental pillar for establishing sustainable growth.`
+  },
+  {
+    en: (en) => `Many students find it challenging to ${en} effectively without structured guidance.`,
+    tr: (tr) => `Birçok öğrenci, düzenli bir rehberlik olmadan ${tr} adımını verimli şekilde uygulamakta zorlanıyor.`,
+    q: (tr) => `Many students find it challenging to .................... (${tr}) effectively without structured guidance.`
+  },
+  {
+    en: (en) => `Environmental scientists highlighted the critical role of ${en} in protecting marine ecosystems.`,
+    tr: (tr) => `Çevre bilimciler, deniz ekosistemlerini korumada ${tr} konusunun kritik rolüne dikkat çekti.`,
+    q: (tr) => `Environmental scientists highlighted the critical role of .................... (${tr}) in protecting marine ecosystems.`
+  },
+  {
+    en: (en) => `He maintained a strong commitment to ${en} throughout his international career.`,
+    tr: (tr) => `Uluslararası kariyeri boyunca ${tr} konusunda güçlü bir kararlılık sürdürdü.`,
+    q: (tr) => `He maintained a strong commitment to .................... (${tr}) throughout his international career.`
+  },
+  {
+    en: (en) => `The company announced plans to expand its ${en} initiatives across European markets.`,
+    tr: (tr) => `Şirket, Avrupa pazarlarında ${tr} girişimlerini genişletme planlarını duyurdu.`,
+    q: (tr) => `The company announced plans to expand its .................... (${tr}) initiatives across European markets.`
+  },
+  {
+    en: (en) => `Historians argue that cultural ${en} played an undeniable role in the renaissance period.`,
+    tr: (tr) => `Tarihçiler, Rönesans döneminde kültürel ${tr} unsurunun inkar edilemez bir rol oynadığını savunuyor.`,
+    q: (tr) => `Historians argue that cultural .................... (${tr}) played an undeniable role in the renaissance period.`
+  },
+  {
+    en: (en) => `In modern diplomacy, mutual ${en} remains the cornerstone of peaceful international relations.`,
+    tr: (tr) => `Modern diplomaside karşılıklı ${tr}, barışçıl uluslararası ilişkilerin temel taşı olmaya devam ediyor.`,
+    q: (tr) => `In modern diplomacy, mutual .................... (${tr}) remains the cornerstone of peaceful international relations.`
+  }
+];
+
+function generateDiverseLesson(levelWords, levelNumber) {
   const wordsData = levelWords.map((w, idx) => {
     const en = w.english || w.en;
     const tr = w.turkish || w.tr;
     const pron = w.pronunciation || w.ipa || '';
+    const pattern = DIVERSE_PATTERNS[idx % DIVERSE_PATTERNS.length];
+
     return {
       index: idx + 1,
       english: en,
       turkish: tr,
       pronunciation: pron,
-      example_en: `In practical contexts, understanding ${en} is essential for language mastery.`,
-      example_tr: `Pratik bağlamda, ${tr} kavramını anlamak dil hakimiyeti için esastır.`
+      example_en: pattern.en(en),
+      example_tr: pattern.tr(tr)
     };
   });
 
   const quizData = levelWords.map((w, idx) => {
     const en = w.english || w.en;
     const tr = w.turkish || w.tr;
+    const pattern = DIVERSE_PATTERNS[idx % DIVERSE_PATTERNS.length];
     const otherWords = levelWords.filter(item => (item.english || item.en) !== en);
     const shuffledOthers = [...otherWords].sort(() => 0.5 - Math.random()).slice(0, 4);
 
@@ -63,7 +149,7 @@ function generateFallbackLesson(levelWords, levelNumber) {
 
     return {
       question_number: idx + 1,
-      sentence: `Experts emphasized that .................... (${tr}) plays a vital role in this case.`,
+      sentence: pattern.q(tr),
       target_word: en,
       turkish_meaning: tr,
       options: options,
@@ -74,52 +160,29 @@ function generateFallbackLesson(levelWords, levelNumber) {
   return { wordsData, quizData };
 }
 
-// Google Gemini Flash ile Cümle ve Soru Üretimi
+// Google Gemini Flash API ile Her Kelimeye Özel Cümle ve Soru Üretimi
 async function callGeminiFlash(levelWords, levelNumber) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
 
-  const prompt = `You are a high-level English teacher preparing YDS / Academic vocabulary content for Level ${levelNumber}.
-Use these 10 words:
-${JSON.stringify(levelWords.map(w => ({ en: w.english || w.en, tr: w.turkish || w.tr })))}
+  const prompt = `You are a professional YDS/YÖKDİL exam instructor and linguist.
+Create an authentic, contextual, high-yield English learning lesson and 5-choice fill-in-the-blank test for Level ${levelNumber} using these 10 vocabulary items:
+${JSON.stringify(levelWords.map(w => ({ word: w.english || w.en, meaning: w.turkish || w.tr })))}
 
-Generate a valid JSON object strictly matching this schema:
-{
-  "words_data": [
-    {
-      "index": 1,
-      "english": "word",
-      "turkish": "translation",
-      "pronunciation": "pron",
-      "example_en": "Natural English sentence.",
-      "example_tr": "Accurate Turkish translation."
-    }
-  ],
-  "quiz_data": [
-    {
-      "question_number": 1,
-      "sentence": "Sentence with .................... (clue: Turkish translation)",
-      "target_word": "word",
-      "turkish_meaning": "translation",
-      "options": [
-        {"key": "a", "text": "wordA"},
-        {"key": "b", "text": "wordB"},
-        {"key": "c", "text": "wordC"},
-        {"key": "d", "text": "wordD"},
-        {"key": "e", "text": "wordE"}
-      ],
-      "correct_answer": "a"
-    }
-  ]
-}
-Return ONLY pure JSON. No markdown backticks.`;
+CRITICAL RULES:
+1. DO NOT use generic template sentences like "continuous effort to understand" or similar placeholders.
+2. Every sentence MUST be completely unique, natural, and specifically match the part of speech (noun, verb, adjective, phrasal verb) and exact meaning of the vocabulary item.
+3. For quiz_data, the sentence must contain "...................." where the target word should go, followed by its Turkish translation clue like "(ipucu: ...)".
+4. Provide exactly 5 distinct options (a, b, c, d, e) for each question with correct_answer matching the letter key.
+
+Return strictly a valid JSON object with keys "words_data" and "quiz_data". No markdown, no commentary.`;
 
   return new Promise((resolve) => {
     const postData = JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
         responseMimeType: "application/json",
-        temperature: 0.3
+        temperature: 0.4
       }
     });
 
@@ -144,7 +207,7 @@ Return ONLY pure JSON. No markdown backticks.`;
           const rawText = parsed.candidates[0].content.parts[0].text;
           const cleanedText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
           const lessonJson = JSON.parse(cleanedText);
-          if (lessonJson.words_data && lessonJson.quiz_data) {
+          if (Array.isArray(lessonJson.words_data) && Array.isArray(lessonJson.quiz_data)) {
             resolve({
               wordsData: lessonJson.words_data,
               quizData: lessonJson.quiz_data
@@ -165,17 +228,22 @@ Return ONLY pure JSON. No markdown backticks.`;
   });
 }
 
-// Seviye dersini getir veya YDS sıralı aktif havuzdan yeni 10 kelime seçip oluştur
+// Seviye Dersi Üretim ve Veritabanı Önbelleği
+// Cache Versiyonlama (v2): Eski hatalı şablonlu kayıtları geçersiz kılıp taze veritabanı önbelleği oluşturur
+const LESSON_CACHE_KEY_OFFSET = 10000; // v2 önbellek anahtarı
+
 async function getOrGenerateLesson(pool, userId, levelNumber, useStudyListOnly = false) {
-  // 1. Veritabanındaki kayıtlı dersi kontrol et
+  const versionedLevelNumber = LESSON_CACHE_KEY_OFFSET + levelNumber;
+
+  // 1. Veritabanındaki yeni versiyonlu kaydı kontrol et
   const existing = await pool.query(
     'SELECT level_number, words_data, quiz_data FROM generated_lessons WHERE level_number = $1',
-    [levelNumber]
+    [versionedLevelNumber]
   );
 
   if (existing.rows.length > 0) {
     return {
-      level_number: existing.rows[0].level_number,
+      level_number: levelNumber,
       words_data: existing.rows[0].words_data,
       quiz_data: existing.rows[0].quiz_data,
       cached: true
@@ -216,10 +284,9 @@ async function getOrGenerateLesson(pool, userId, levelNumber, useStudyListOnly =
     return null;
   }
 
-  // 4. YDS Zorluk Sıralaması:
-  // - 1. Kısa (3-5 harf)
-  // - 2. Orta (6-8 harf)
-  // - 3. Uzun akademik (9+ harf) ve boşluk içeren deyimler
+  // 4. Sabit alfabetik sıralama KALDIRILDI.
+  // YDS / CEFR Zorluk Derecelendirmesi:
+  // Seviye 1 (A1-A2 Temel), Seviye 2 (B1-B2 Orta), Seviye 3+ (C1-C2 Akademik YDS)
   rawWords.sort((a, b) => calculateYdsDifficulty(a) - calculateYdsDifficulty(b));
 
   // 5. Tekrar Önleme: Daha önce tamamlanan kelimeleri havuzdan çıkar
@@ -230,24 +297,33 @@ async function getOrGenerateLesson(pool, userId, levelNumber, useStudyListOnly =
     availableWords = rawWords;
   }
 
-  // Seviye için sıradaki 10 YDS sıralı kelimeyi al
-  const levelWords = availableWords.slice(0, 10);
+  // Her seviye grubunun içinden 10 rastgele (shuffled) kelime seç
+  // Böylece aynı zorluk havuzunda sabit 10 kelimede dönülmez, her seferinde farklı kelimeler gelir
+  const targetDifficultyTier = Math.min(2, Math.floor((levelNumber - 1) / 3)); // 0: A1-A2, 1: B1-B2, 2: C1-C2
+  const tierSize = Math.max(10, Math.floor(availableWords.length / 3));
+  const startIdx = targetDifficultyTier * tierSize;
+  const endIdx = targetDifficultyTier === 2 ? availableWords.length : (targetDifficultyTier + 1) * tierSize;
+
+  const currentTierPool = availableWords.slice(startIdx, Math.max(startIdx + 10, endIdx));
+  const shuffledTierWords = [...currentTierPool].sort(() => 0.5 - Math.random());
+  const levelWords = shuffledTierWords.slice(0, 10);
+
   if (levelWords.length < 5) {
     return null;
   }
 
-  // 6. Gemini Flash veya Fallback ile Üret
+  // 6. Gemini Flash API ile özgün cümleler ürettir; fallback olarak da dinamik çeşitlilik şablonunu kullan
   let generated = await callGeminiFlash(levelWords, levelNumber);
   if (!generated) {
-    generated = generateFallbackLesson(levelWords, levelNumber);
+    generated = generateDiverseLesson(levelWords, levelNumber);
   }
 
-  // 7. Neon PostgreSQL'e kaydet
+  // 7. Neon PostgreSQL'e kaydet (v2 versioned level number ile)
   await pool.query(
     `INSERT INTO generated_lessons (level_number, words_data, quiz_data)
      VALUES ($1, $2, $3)
      ON CONFLICT (level_number) DO UPDATE SET words_data = $2, quiz_data = $3`,
-    [levelNumber, JSON.stringify(generated.wordsData), JSON.stringify(generated.quizData)]
+    [versionedLevelNumber, JSON.stringify(generated.wordsData), JSON.stringify(generated.quizData)]
   );
 
   return {
