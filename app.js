@@ -4215,9 +4215,10 @@ class StepByStepLessonsGame {
 
     try {
       let data = null;
+      const isStudyOnly = WordStore.useOnlyStudyList;
       try {
         const userId = AuthStore.user ? AuthStore.user.id : 1;
-        const resp = await fetch(`/api/lessons?user_id=${userId}&level=${levelNum}`);
+        const resp = await fetch(`/api/lessons?user_id=${userId}&level=${levelNum}&study_only=${isStudyOnly}`);
         if (resp.ok) {
           data = await resp.json();
         }
@@ -4254,19 +4255,33 @@ class StepByStepLessonsGame {
           return;
         }
 
-        // Yerel YDS zorluk algoritmasıyla 5000 kelimeden rastgele kademeli seçim
-        const sortedPool = [...words].sort((a, b) => {
-          const scoreA = a.en.length * 10 + (/[aeiou]{2,}/i.test(a.en) ? 15 : 0) + (/(tion|ment|ance|ence|ible|able|ity)$/i.test(a.en) ? 25 : 0);
-          const scoreB = b.en.length * 10 + (/[aeiou]{2,}/i.test(b.en) ? 15 : 0) + (/(tion|ment|ance|ence|ible|able|ity)$/i.test(b.en) ? 25 : 0);
-          return scoreA - scoreB;
-        });
+        // Yerel YDS zorluk algoritmasıyla sıralama:
+        // 1. Kısa tek kelimeler (3-5 harf)
+        // 2. Orta uzunlukta kelimeler (6-8 harf)
+        // 3. Uzun akademik YDS kelimeleri (9+ harf) ve boşluk içeren deyimler
+        function getYdsScore(w) {
+          const en = (w.en || '').trim().toLowerCase();
+          let score = en.includes(' ') ? 150 : 0;
+          score += en.replace(/\s+/g, '').length * 10;
+          const suffixes = ['tion', 'sion', 'ment', 'ance', 'ence', 'ible', 'able', 'tude', 'logy', 'eous', 'ious', 'ness', 'ship', 'ical'];
+          suffixes.forEach(s => {
+            if (en.endsWith(s)) score += 30;
+          });
+          return score;
+        }
 
-        const total = sortedPool.length;
-        const bucketSize = Math.max(10, Math.floor(total / 10));
-        const bucketIdx = Math.min(9, Math.floor((levelNum - 1) % 10));
-        const start = Math.min(bucketIdx * bucketSize, Math.max(0, total - 10));
-        const slice = sortedPool.slice(start, Math.min(start + bucketSize + 10, total));
-        const selectedSample = getRandomSample(slice.length >= 10 ? slice : sortedPool, 10);
+        const sortedPool = [...words].sort((a, b) => getYdsScore(a) - getYdsScore(b));
+
+        // Tamamlanmış kelimeleri hariç tutarak ilerle
+        const completedSet = this.completedWordsSet || new Set();
+        let candidatePool = sortedPool.filter(w => !completedSet.has(w.en.toLowerCase()));
+
+        if (candidatePool.length < 10) {
+          candidatePool = sortedPool;
+        }
+
+        const offset = Math.min((levelNum - 1) * 10, Math.max(0, candidatePool.length - 10));
+        const selectedSample = candidatePool.slice(offset, offset + 10);
 
         this.lessonData = {
           level_number: levelNum,
@@ -4498,6 +4513,14 @@ class StepByStepLessonsGame {
     const isLevelPassed = this.score >= 7;
     const userId = AuthStore.user ? AuthStore.user.id : 1;
 
+    // Başarıyla öğrenilen kelimelerin listesini hazırla
+    const learnedThisLevel = (this.lessonData && this.lessonData.words_data)
+      ? this.lessonData.words_data.map(w => w.english)
+      : [];
+
+    if (!this.completedWordsSet) this.completedWordsSet = new Set();
+    learnedThisLevel.forEach(w => this.completedWordsSet.add(w.toLowerCase()));
+
     // Arka planda sunucuya sonucu bildir (Asenkron persist)
     try {
       fetch('/api/lessons', {
@@ -4507,7 +4530,8 @@ class StepByStepLessonsGame {
           user_id: userId,
           level_number: this.currentLevel,
           correct_count: this.score,
-          wrong_words: this.wrongWords
+          wrong_words: this.wrongWords,
+          completed_words: learnedThisLevel
         })
       });
     } catch (e) {

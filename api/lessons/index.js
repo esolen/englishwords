@@ -1,44 +1,71 @@
 const https = require('https');
 const { getPool, ensureTables, parseBody } = require('../_db');
 
-// Basit fallback cümle üreteci (AI anahtarı yoksa veya hata verirse sıfır gecikmeli şablon)
+// YDS / Akademik Zorluk Sıralaması Fonksiyonu:
+// 1. Kısa, tek kelimelik temel ifadeler (3-5 harf) en başta (Düşük Skor: 0 - 50)
+// 2. Orta uzunluktaki sıfat, zarf ve fiiller (6-8 harf) ortada (Orta Skor: 60 - 80)
+// 3. Uzun akademik YDS kelimeleri (9+ harf) ve birden fazla kelimeden oluşan deyimler/phrasal verbler en sonda (Yüksek Skor: 90+)
+function calculateYdsDifficulty(wordObj) {
+  const en = (wordObj.english || wordObj.en || '').trim().toLowerCase();
+  let score = 0;
+
+  // Boşluk içeren deyimler veya phrasal verb'ler en zordur
+  if (en.includes(' ')) {
+    score += 150;
+  }
+
+  // Harf uzunluğuna göre kademelendirme
+  const cleanLen = en.replace(/\s+/g, '').length;
+  score += cleanLen * 10;
+
+  // Akademik son ekler (YDS odaklı)
+  const academicSuffixes = ['tion', 'sion', 'ment', 'ance', 'ence', 'ible', 'able', 'tude', 'logy', 'eous', 'ious', 'ness', 'ship', 'ical'];
+  academicSuffixes.forEach(s => {
+    if (en.endsWith(s)) score += 30;
+  });
+
+  return score;
+}
+
+// Fallback Hızlı Ders Üreteci
 function generateFallbackLesson(levelWords, levelNumber) {
   const wordsData = levelWords.map((w, idx) => {
-    const en = w.english;
-    const tr = w.turkish;
-    const pron = w.pronunciation || '';
+    const en = w.english || w.en;
+    const tr = w.turkish || w.tr;
+    const pron = w.pronunciation || w.ipa || '';
     return {
       index: idx + 1,
       english: en,
       turkish: tr,
       pronunciation: pron,
-      example_en: `She made a continuous effort to understand ${en} in everyday life.`,
-      example_tr: `Günlük hayatta ${tr} kavramını anlamak için sürekli çaba gösterdi.`
+      example_en: `In practical contexts, understanding ${en} is essential for language mastery.`,
+      example_tr: `Pratik bağlamda, ${tr} kavramını anlamak dil hakimiyeti için esastır.`
     };
   });
 
   const quizData = levelWords.map((w, idx) => {
-    const en = w.english;
-    const otherWords = levelWords.filter(item => item.english !== en);
-    // 4 yanlış seçenek seç
+    const en = w.english || w.en;
+    const tr = w.turkish || w.tr;
+    const otherWords = levelWords.filter(item => (item.english || item.en) !== en);
     const shuffledOthers = [...otherWords].sort(() => 0.5 - Math.random()).slice(0, 4);
+
     const optionsRaw = [
       { text: en, correct: true },
-      ...shuffledOthers.map(o => ({ text: o.english, correct: false }))
+      ...shuffledOthers.map(o => ({ text: o.english || o.en, correct: false }))
     ].sort(() => 0.5 - Math.random());
 
     const letters = ['a', 'b', 'c', 'd', 'e'];
     const options = optionsRaw.map((opt, oIdx) => ({
-      key: letters[oIdx],
+      key: letters[oIdx] || 'a',
       text: opt.text
     }));
     const correctLetter = options.find(o => o.text === en).key;
 
     return {
       question_number: idx + 1,
-      sentence: `It is important to remember .................... (${w.turkish}) during our studies.`,
+      sentence: `Experts emphasized that .................... (${tr}) plays a vital role in this case.`,
       target_word: en,
-      turkish_meaning: w.turkish,
+      turkish_meaning: tr,
       options: options,
       correct_answer: correctLetter
     };
@@ -47,32 +74,45 @@ function generateFallbackLesson(levelWords, levelNumber) {
   return { wordsData, quizData };
 }
 
-// Google Gemini Flash API ile yüksek kaliteli cümle ve 5 şıklı soru üretimi
+// Google Gemini Flash ile Cümle ve Soru Üretimi
 async function callGeminiFlash(levelWords, levelNumber) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
 
-  const prompt = `You are an expert English teacher.
-Generate learning content for Level ${levelNumber} using these 10 English-Turkish word pairs:
-${JSON.stringify(levelWords.map(w => ({ en: w.english, tr: w.turkish })))}
+  const prompt = `You are a high-level English teacher preparing YDS / Academic vocabulary content for Level ${levelNumber}.
+Use these 10 words:
+${JSON.stringify(levelWords.map(w => ({ en: w.english || w.en, tr: w.turkish || w.tr })))}
 
-Requirements:
-1. "words_data": array of 10 objects with keys:
-   - "index" (number 1 to 10)
-   - "english" (word)
-   - "turkish" (Turkish translation)
-   - "pronunciation" (IPA/phonetic)
-   - "example_en" (a natural English sentence using the word)
-   - "example_tr" (accurate Turkish translation of the example sentence)
-2. "quiz_data": array of 10 objects for fill-in-the-blank questions with keys:
-   - "question_number" (1 to 10)
-   - "sentence" (sentence with "...................." replacing the target word, include Turkish clue in parenthesis like "(ipucu: ...)")
-   - "target_word" (the correct English word)
-   - "turkish_meaning" (Turkish meaning)
-   - "options": array of 5 objects [{"key":"a","text":"..."},{"key":"b","text":"..."},{"key":"c","text":"..."},{"key":"d","text":"..."},{"key":"e","text":"..."}] using words from this level or similar English vocabulary
-   - "correct_answer": "a", "b", "c", "d", or "e"
-
-Return ONLY a valid JSON object with keys "words_data" and "quiz_data". No markdown, no triple backticks.`;
+Generate a valid JSON object strictly matching this schema:
+{
+  "words_data": [
+    {
+      "index": 1,
+      "english": "word",
+      "turkish": "translation",
+      "pronunciation": "pron",
+      "example_en": "Natural English sentence.",
+      "example_tr": "Accurate Turkish translation."
+    }
+  ],
+  "quiz_data": [
+    {
+      "question_number": 1,
+      "sentence": "Sentence with .................... (clue: Turkish translation)",
+      "target_word": "word",
+      "turkish_meaning": "translation",
+      "options": [
+        {"key": "a", "text": "wordA"},
+        {"key": "b", "text": "wordB"},
+        {"key": "c", "text": "wordC"},
+        {"key": "d", "text": "wordD"},
+        {"key": "e", "text": "wordE"}
+      ],
+      "correct_answer": "a"
+    }
+  ]
+}
+Return ONLY pure JSON. No markdown backticks.`;
 
   return new Promise((resolve) => {
     const postData = JSON.stringify({
@@ -118,24 +158,16 @@ Return ONLY a valid JSON object with keys "words_data" and "quiz_data". No markd
       });
     });
 
-    req.on('error', (e) => {
-      console.warn('Gemini request error:', e);
-      resolve(null);
-    });
-
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(null);
-    });
-
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
     req.write(postData);
     req.end();
   });
 }
 
-// Seviye içeriğini al veya üretip veritabanına kaydet
-async function getOrGenerateLesson(pool, userId, levelNumber) {
-  // 1. Veritabanında zaten var mı? (Sıfır gecikmeli SQL önceliği)
+// Seviye dersini getir veya YDS sıralı aktif havuzdan yeni 10 kelime seçip oluştur
+async function getOrGenerateLesson(pool, userId, levelNumber, useStudyListOnly = false) {
+  // 1. Veritabanındaki kayıtlı dersi kontrol et
   const existing = await pool.query(
     'SELECT level_number, words_data, quiz_data FROM generated_lessons WHERE level_number = $1',
     [levelNumber]
@@ -150,63 +182,67 @@ async function getOrGenerateLesson(pool, userId, levelNumber) {
     };
   }
 
-  // 2. Kullanıcının tüm kelimelerini YDS zorluk puanına göre sırala
-  // YDS / Akademik zorluk mantığı: Kelime uzunluğu, hece/karakter karmaşıklığı ve nadirlik
-  const allUserWordsResult = await pool.query(
-    'SELECT english, turkish, pronunciation FROM user_words WHERE user_id = $1',
+  // 2. Tamamlanan kelimeleri (completed_word_ids) çek
+  const statRes = await pool.query(
+    'SELECT completed_word_ids FROM user_statistics WHERE user_id = $1 ORDER BY id ASC LIMIT 1',
     [userId]
   );
+  const completedWords = new Set(
+    (statRes.rows.length > 0 && Array.isArray(statRes.rows[0].completed_word_ids))
+      ? statRes.rows[0].completed_word_ids.map(w => w.toLowerCase())
+      : []
+  );
 
-  let allWords = allUserWordsResult.rows;
-  if (allWords.length === 0) {
+  // 3. Aktif havuzu çek (Özel liste filtresine veya tüm 5000+ kelime havuzuna göre)
+  let rawWords = [];
+  if (useStudyListOnly) {
+    const studyRes = await pool.query(
+      `SELECT uw.english, uw.turkish, uw.pronunciation
+       FROM user_words uw
+       INNER JOIN user_study_list usl ON LOWER(uw.english) = LOWER(usl.english)
+       WHERE uw.user_id = $1 AND usl.user_id = $1`,
+      [userId]
+    );
+    rawWords = studyRes.rows;
+  } else {
+    const allRes = await pool.query(
+      'SELECT english, turkish, pronunciation FROM user_words WHERE user_id = $1',
+      [userId]
+    );
+    rawWords = allRes.rows;
+  }
+
+  if (rawWords.length === 0) {
     return null;
   }
 
-  // YDS Zorluk Skoru Hesaplama:
-  // - Kısa, temel kelimeler: Düşük skor (Kolay)
-  // - Uzun, akademik son ekli (-tion, -ment, -ance, -ous, -able, -ity vb.): Yüksek skor (Zor)
-  function calculateYdsDifficulty(w) {
-    const en = (w.english || '').toLowerCase();
-    let score = en.length * 10;
-    const academicSuffixes = ['tion', 'sion', 'ment', 'ance', 'ence', 'ible', 'able', 'tude', 'logy', 'eous', 'ious', 'ness', 'ship'];
-    academicSuffixes.forEach(s => {
-      if (en.endsWith(s)) score += 25;
-    });
-    return score;
+  // 4. YDS Zorluk Sıralaması:
+  // - 1. Kısa (3-5 harf)
+  // - 2. Orta (6-8 harf)
+  // - 3. Uzun akademik (9+ harf) ve boşluk içeren deyimler
+  rawWords.sort((a, b) => calculateYdsDifficulty(a) - calculateYdsDifficulty(b));
+
+  // 5. Tekrar Önleme: Daha önce tamamlanan kelimeleri havuzdan çıkar
+  let availableWords = rawWords.filter(w => !completedWords.has((w.english || '').toLowerCase()));
+
+  // Eğer tüm kelimeler tamamlandıysa, havuzu yeniden dolaş
+  if (availableWords.length < 10) {
+    availableWords = rawWords;
   }
 
-  // Kelimeleri zorluk derecesine göre artan sırada sırala
-  allWords.sort((a, b) => calculateYdsDifficulty(a) - calculateYdsDifficulty(b));
-
-  // Her seviye (levelNumber) için sıralı havuzun uygun diliminden rastgele 10 farklı kelime seç
-  // Böylece Seviye 1 en kolaylardan başlar, seviyeler ilerledikçe YDS seviyesine doğru zorlaşır
-  const totalWords = allWords.length;
-  const bucketSize = Math.max(10, Math.floor(totalWords / 10)); // 10 zorluk dilimi
-  const bucketIndex = Math.min(9, Math.floor((levelNumber - 1) / Math.max(1, Math.ceil(50 / 10))));
-  const startIdx = Math.min(bucketIndex * bucketSize, Math.max(0, totalWords - 10));
-  const endIdx = Math.min(startIdx + bucketSize + 15, totalWords);
-
-  const candidatePool = allWords.slice(startIdx, Math.max(startIdx + 10, endIdx));
-
-  // Belirlenen zorluk aralığından seviyeye özel tohumlu (levelNumber tabanlı) rastgele 10 kelime seç
-  const shuffledCandidates = [...candidatePool].sort(() => 0.5 - Math.random());
-  let levelWords = shuffledCandidates.slice(0, 10);
-
-  if (levelWords.length < 10 && allWords.length >= 10) {
-    levelWords = allWords.slice(0, 10);
-  }
-
-  if (levelWords.length === 0) {
+  // Seviye için sıradaki 10 YDS sıralı kelimeyi al
+  const levelWords = availableWords.slice(0, 10);
+  if (levelWords.length < 5) {
     return null;
   }
 
-  // 3. Gemini Flash ile üretmeyi dene, aksi halde hızlı şablonla üret
+  // 6. Gemini Flash veya Fallback ile Üret
   let generated = await callGeminiFlash(levelWords, levelNumber);
   if (!generated) {
     generated = generateFallbackLesson(levelWords, levelNumber);
   }
 
-  // 4. Neon PostgreSQL'e kaydet
+  // 7. Neon PostgreSQL'e kaydet
   await pool.query(
     `INSERT INTO generated_lessons (level_number, words_data, quiz_data)
      VALUES ($1, $2, $3)
@@ -233,34 +269,32 @@ module.exports = async function handler(req, res) {
   try {
     await ensureTables();
 
-    // GET /api/lessons?user_id=1&level=1
+    // GET /api/lessons?user_id=1&level=1&study_only=false
     if (req.method === 'GET') {
       const userId = req.query.user_id ? parseInt(req.query.user_id, 10) : null;
       const levelNumber = req.query.level ? parseInt(req.query.level, 10) : 1;
+      const useStudyOnly = req.query.study_only === 'true';
 
       if (!userId) {
         return res.status(401).json({ success: false, error: 'user_id is required.' });
       }
 
-      // Kullanıcının mevcut seviyesini de çek
       const statRes = await pool.query(
-        'SELECT current_level FROM user_statistics WHERE user_id = $1 ORDER BY id ASC LIMIT 1',
+        'SELECT current_level, completed_word_ids FROM user_statistics WHERE user_id = $1 ORDER BY id ASC LIMIT 1',
         [userId]
       );
       const userLevel = statRes.rows.length > 0 && statRes.rows[0].current_level ? statRes.rows[0].current_level : 1;
 
-      const lesson = await getOrGenerateLesson(pool, userId, levelNumber);
+      const lesson = await getOrGenerateLesson(pool, userId, levelNumber, useStudyOnly);
       if (!lesson) {
         return res.status(400).json({ success: false, error: 'Yeterli kelime bulunamadı. Lütfen kelime ekleyin.' });
       }
 
-      // Arka planda sessizce Seviye N+1'i üret ve önbellekle (Pre-fetching)
+      // Pre-fetching: Arka planda Seviye N+1'i üretip veritabanına kaydet
       setImmediate(async () => {
         try {
-          await getOrGenerateLesson(pool, userId, levelNumber + 1);
-        } catch (err) {
-          // pre-fetch silent catch
-        }
+          await getOrGenerateLesson(pool, userId, levelNumber + 1, useStudyOnly);
+        } catch (e) {}
       });
 
       return res.status(200).json({
@@ -270,19 +304,20 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // POST /api/lessons/complete - Seviye tamamlama ve seviye artırma
+    // POST /api/lessons - Seviye tamamlama, seviye artırma ve completed_word_ids kaydetme
     if (req.method === 'POST') {
       const body = parseBody(req);
       const userId = body.user_id ? parseInt(body.user_id, 10) : null;
       const completedLevel = body.level_number ? parseInt(body.level_number, 10) : 1;
       const correctCount = typeof body.correct_count === 'number' ? body.correct_count : 0;
       const wrongWords = Array.isArray(body.wrong_words) ? body.wrong_words : [];
+      const completedWords = Array.isArray(body.completed_words) ? body.completed_words : [];
 
       if (!userId) {
         return res.status(401).json({ success: false, error: 'user_id is required.' });
       }
 
-      // 1. Yanlış yapılan kelimeleri Zorlu Kelimeler havuzuna ekle
+      // 1. Yanlış kelimeleri Zorlu Kelimeler havuzuna ekle
       if (wrongWords.length > 0) {
         const existingDiff = await pool.query(
           'SELECT id, wrong_words FROM user_statistics WHERE user_id = $1 AND game_type = $2',
@@ -303,31 +338,34 @@ module.exports = async function handler(req, res) {
         }
       }
 
-      // 2. En az 7 doğru yapıldıysa current_level değerini artır
+      // 2. Başarıyla tamamlanan kelimeleri completed_word_ids içine kaydet (Tekrarı önleme)
       let leveledUp = false;
       let newLevel = completedLevel;
 
       if (correctCount >= 7) {
         newLevel = completedLevel + 1;
         leveledUp = true;
+      }
 
-        const statRes = await pool.query(
-          'SELECT id, current_level FROM user_statistics WHERE user_id = $1 ORDER BY id ASC LIMIT 1',
-          [userId]
+      const statRes = await pool.query(
+        'SELECT id, current_level, completed_word_ids FROM user_statistics WHERE user_id = $1 ORDER BY id ASC LIMIT 1',
+        [userId]
+      );
+
+      if (statRes.rows.length > 0) {
+        const currentCompleted = Array.isArray(statRes.rows[0].completed_word_ids) ? statRes.rows[0].completed_word_ids : [];
+        const mergedCompleted = Array.from(new Set([...currentCompleted, ...completedWords.map(w => w.toLowerCase())]));
+        const targetLevel = Math.max(statRes.rows[0].current_level || 1, newLevel);
+
+        await pool.query(
+          'UPDATE user_statistics SET current_level = $1, completed_word_ids = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
+          [targetLevel, JSON.stringify(mergedCompleted), statRes.rows[0].id]
         );
-
-        if (statRes.rows.length > 0) {
-          const cur = Math.max(statRes.rows[0].current_level || 1, newLevel);
-          await pool.query(
-            'UPDATE user_statistics SET current_level = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2',
-            [cur, userId]
-          );
-        } else {
-          await pool.query(
-            'INSERT INTO user_statistics (user_id, game_type, score, current_level) VALUES ($1, $2, $3, $4)',
-            [userId, 'general', 0, newLevel]
-          );
-        }
+      } else {
+        await pool.query(
+          'INSERT INTO user_statistics (user_id, game_type, score, current_level, completed_word_ids) VALUES ($1, $2, $3, $4, $5)',
+          [userId, 'general', 0, newLevel, JSON.stringify(completedWords.map(w => w.toLowerCase()))]
+        );
       }
 
       return res.status(200).json({
