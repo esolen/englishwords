@@ -60,10 +60,12 @@ async function ensureTables() {
       score INTEGER DEFAULT 0,
       wrong_words JSONB DEFAULT '[]'::jsonb,
       current_level INTEGER DEFAULT 1,
+      completed_word_ids JSONB DEFAULT '[]'::jsonb,
       updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
     );
 
     ALTER TABLE user_statistics ADD COLUMN IF NOT EXISTS current_level INTEGER DEFAULT 1;
+    ALTER TABLE user_statistics ADD COLUMN IF NOT EXISTS completed_word_ids JSONB DEFAULT '[]'::jsonb;
 
     CREATE INDEX IF NOT EXISTS idx_user_stats_user_game ON user_statistics(user_id, game_type);
 
