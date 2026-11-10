@@ -4196,7 +4196,8 @@ class StepByStepLessonsGame {
   }
 
   async init() {
-    setGameHeader('Kolaydan Zora', 'Kelimeleri örnek cümlelerle öğren ve 5 şıklı testle seviye atla');
+    setGameHeader('Kolaydan Zora', 'Kelimeleri örnek cümlelerle öğren ve testle seviye atla');
+    this.cardIndex = 0;
     await this.loadLevelData(this.currentLevel);
   }
 
@@ -4339,69 +4340,79 @@ class StepByStepLessonsGame {
     }
   }
 
-  // AŞAMA 1: ÖĞRENME EKRANI (1. Görseldeki Yapı)
+  // AŞAMA 1: TEKLİ KART (FLASHCARD) FORMATINDA ÖĞRENME EKRANI
   renderLearnStage() {
     const stage = document.getElementById('game-stage');
     if (!stage || !this.lessonData) return;
 
     const wordsList = this.lessonData.words_data || [];
+    if (this.cardIndex === undefined) this.cardIndex = 0;
+
+    // Eğer tüm kartlar tamamlandıysa (10/10) Bitiş Seçenekleri Ekranını Aç
+    if (this.cardIndex >= wordsList.length) {
+      this.renderLevelCompletionChoices();
+      return;
+    }
+
+    const item = wordsList[this.cardIndex];
+    const isFirstCard = this.cardIndex === 0;
+    const isLastCard = this.cardIndex === wordsList.length - 1;
 
     stage.innerHTML = `
-      <div class="w-full max-w-2xl flex flex-col items-center">
-        <!-- Üst Seviye Başlığı -->
-        <div class="w-full flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-emerald-950/60 to-slate-900 border border-emerald-500/30 mb-6 shadow-lg">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold font-mono">
-              ${this.currentLevel}
+      <div class="w-full max-w-xl flex flex-col items-center pb-6">
+        <!-- İlerleme ve Seviye Barı -->
+        <div class="w-full flex items-center justify-between text-xs text-slate-400 mb-2 px-1">
+          <span>Seviye ${this.currentLevel} &bull; Kelime ${this.cardIndex + 1} / ${wordsList.length}</span>
+          <span class="text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">Tekli Kart Modu</span>
+        </div>
+        <div class="w-full h-1.5 bg-slate-800 rounded-full mb-4 sm:mb-6 overflow-hidden border border-slate-700/60">
+          <div class="h-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-300" style="width: ${((this.cardIndex + 1) / wordsList.length) * 100}%"></div>
+        </div>
+
+        <!-- Tekli Kart Kutusu (Flashcard Formatı) -->
+        <div class="w-full bg-gradient-to-br from-slate-900 via-slate-850 to-slate-900 border border-emerald-500/30 rounded-3xl p-5 sm:p-7 shadow-2xl relative mb-5 transition-all">
+
+          <!-- Kart Üst Bilgisi: Sıra No, İngilizce Kelime, Türkçe Anlam, Okunuş ve 🔊 Ses Butonu -->
+          <div class="flex items-center justify-between pb-3 mb-4 border-b border-slate-800">
+            <div class="flex items-center gap-2.5 flex-wrap">
+              <span class="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 font-bold font-mono text-sm flex items-center justify-center">${this.cardIndex + 1}.</span>
+              <span class="font-display font-extrabold text-white text-2xl sm:text-3xl tracking-wide uppercase">${item.english}</span>
+              <span class="text-slate-500 font-bold">:</span>
+              <span class="font-display font-bold text-emerald-300 text-lg sm:text-2xl uppercase">${item.turkish}</span>
+              ${item.pronunciation ? `<span class="text-xs font-mono text-slate-400">[${item.pronunciation}]</span>` : ''}
             </div>
-            <div>
-              <h3 class="font-display font-bold text-white text-base sm:text-lg flex items-center gap-2">
-                <span>Seviye ${this.currentLevel} Kelime Dersi</span>
-                <span class="text-xs font-normal text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">Aşama 1: Öğrenme</span>
-              </h3>
-              <p class="text-xs text-slate-400">Aşağıdaki 10 kelimeyi ve örnek cümleleri dikkatlice inceleyin</p>
+
+            <button id="lesson-card-speak-btn" class="p-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 transition active:scale-95 shadow-sm" title="Sesli Oku">
+              <i data-lucide="volume-2" class="w-5 h-5 text-emerald-400"></i>
+            </button>
+          </div>
+
+          <!-- Örnek Cümle Alanı (✓ İngilizce ve ➔ Türkçe Çeviri) -->
+          <div class="space-y-3 p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80">
+            <!-- Yeşil Onay Simgeli İngilizce Cümle -->
+            <div class="flex items-start gap-2.5 text-sm sm:text-base text-slate-100 font-sans leading-relaxed">
+              <span class="text-emerald-400 font-extrabold text-lg leading-none mt-0.5">✓</span>
+              <p class="font-medium">${item.example_en}</p>
+            </div>
+
+            <!-- Sarı Ok Simgeli Türkçe Çeviri -->
+            <div class="flex items-start gap-2.5 text-xs sm:text-sm text-slate-300/90 leading-relaxed pt-2 border-t border-slate-800/60">
+              <span class="text-amber-400 font-bold text-base leading-none mt-0.5">➔</span>
+              <p>${item.example_tr}</p>
             </div>
           </div>
         </div>
 
-        <!-- 10 Kelimelik Liste (1. DAILY: GÜNLÜK, ✓ Örnek İngilizce, ➔ Örnek Türkçe) -->
-        <div class="w-full space-y-4 mb-8" id="lesson-words-list">
-          ${wordsList.map(item => `
-            <div class="p-4 rounded-2xl bg-slate-800/80 border border-slate-700/80 shadow-md hover:border-emerald-500/40 transition">
-              <!-- Başlık Satırı: 1. DAILY: GÜNLÜK -->
-              <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-700/50">
-                <div class="flex items-center gap-2">
-                  <span class="font-mono text-emerald-400 font-bold text-sm">${item.index || 1}.</span>
-                  <span class="font-display font-extrabold text-white text-base sm:text-lg tracking-wide uppercase">${item.english}</span>
-                  <span class="text-slate-400 font-bold">:</span>
-                  <span class="font-display font-bold text-emerald-300 text-sm sm:text-base uppercase">${item.turkish}</span>
-                  ${item.pronunciation ? `<span class="text-xs font-mono text-slate-400 hidden sm:inline">[${item.pronunciation}]</span>` : ''}
-                </div>
-                <button onclick="AudioService.speak('${item.english.replace(/'/g, "\\'")}')" class="p-1.5 rounded-lg bg-slate-700/60 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Telaffuzu Dinle">
-                  <i data-lucide="volume-2" class="w-4 h-4 text-emerald-400"></i>
-                </button>
-              </div>
+        <!-- Alt Navigasyon (← Önceki ve Sonraki → / Tamamla ✓) -->
+        <div class="w-full flex items-center justify-between gap-3 mt-2">
+          <button id="lesson-prev-card-btn" class="flex-1 py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-semibold text-xs sm:text-sm border border-slate-700 transition flex items-center justify-center gap-2 shadow-sm" ${isFirstCard ? 'disabled style="opacity: 0.35; cursor: not-allowed;"' : ''}>
+            <i data-lucide="arrow-left" class="w-4 h-4"></i>
+            <span>Önceki</span>
+          </button>
 
-              <!-- Doğal İngilizce Örnek Cümle (✓) -->
-              <div class="flex items-start gap-2 text-xs sm:text-sm text-slate-200 mb-1.5 pl-1">
-                <span class="text-emerald-400 font-bold mt-0.5">✓</span>
-                <p class="leading-relaxed font-sans">${item.example_en}</p>
-              </div>
-
-              <!-- Tam Türkçe Çevirisi (➔) -->
-              <div class="flex items-start gap-2 text-xs sm:text-sm text-slate-400 pl-1">
-                <span class="text-amber-400 font-bold mt-0.5">➔</span>
-                <p class="leading-relaxed">${item.example_tr}</p>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-
-        <!-- En Altta: Kelimeleri Öğrendim, Teste Geç Butonu -->
-        <div class="w-full flex justify-center pb-6">
-          <button id="start-quiz-stage-btn" class="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm sm:text-base shadow-xl shadow-emerald-600/30 transition transform active:scale-95 flex items-center justify-center gap-2 border border-emerald-400/40">
-            <span>Kelimeleri Öğrendim, Teste Geç</span>
-            <i data-lucide="arrow-right" class="w-5 h-5"></i>
+          <button id="lesson-next-card-btn" class="flex-1 py-3 px-4 rounded-xl ${isLastCard ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white shadow-emerald-600/30 font-bold' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'} font-semibold text-xs sm:text-sm border border-slate-700 transition flex items-center justify-center gap-2 shadow-sm">
+            <span>${isLastCard ? 'Kelimeleri Bitir ✓' : 'Sonraki'}</span>
+            <i data-lucide="${isLastCard ? 'check' : 'arrow-right'}" class="w-4 h-4"></i>
           </button>
         </div>
       </div>
@@ -4409,18 +4420,202 @@ class StepByStepLessonsGame {
 
     if (window.lucide) window.lucide.createIcons();
 
-    const startQuizBtn = document.getElementById('start-quiz-stage-btn');
+    // Dinleme Butonu
+    const speakBtn = document.getElementById('lesson-card-speak-btn');
+    if (speakBtn) {
+      speakBtn.addEventListener('click', () => {
+        AudioService.speak(item.english);
+      });
+    }
+
+    // Önceki Kart Butonu
+    const prevBtn = document.getElementById('lesson-prev-card-btn');
+    if (prevBtn && !isFirstCard) {
+      prevBtn.addEventListener('click', () => {
+        this.cardIndex--;
+        AudioService.playSfx('click');
+        this.renderLearnStage();
+      });
+    }
+
+    // Sonraki Kart Butonu
+    const nextBtn = document.getElementById('lesson-next-card-btn');
+    if (nextBtn) {
+      nextBtn.addEventListener('click', () => {
+        this.cardIndex++;
+        AudioService.playSfx('click');
+        this.renderLearnStage();
+      });
+    }
+  }
+
+  // AŞAMA 1 BİTİŞ EKRANI (2 Butonlu Seçenek Yapısı)
+  renderLevelCompletionChoices() {
+    const stage = document.getElementById('game-stage');
+    if (!stage || !this.lessonData) return;
+
+    stage.innerHTML = `
+      <div class="w-full max-w-md flex flex-col items-center text-center p-6 bg-slate-800/80 border border-slate-700 rounded-3xl shadow-2xl animate-pop">
+        <div class="w-16 h-16 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-4 border border-emerald-500/30">
+          <i data-lucide="check-circle" class="w-8 h-8"></i>
+        </div>
+
+        <h3 class="font-display font-extrabold text-xl sm:text-2xl text-white mb-2">
+          Seviye ${this.currentLevel} Kelimelerini Tamamladınız!
+        </h3>
+        <p class="text-xs sm:text-sm text-slate-300 mb-6 leading-relaxed">
+          Veritabanınızdaki bu seviyeye ait 10 kelimeyi incelediniz. Şimdi kelimeleri pekiştirmek için tekrar edebilir veya teste başlayabilirsiniz:
+        </p>
+
+        <!-- 2 Butonlu Yapı -->
+        <div class="w-full space-y-3">
+          <!-- Buton 1: Kelimelerin Tekrarını Yeniden Yap -->
+          <button id="choice-repeat-words-btn" class="w-full py-3.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-semibold text-xs sm:text-sm border border-slate-700 transition flex items-center justify-center gap-2 active:scale-95 shadow-sm">
+            <i data-lucide="rotate-ccw" class="w-4 h-4 text-amber-400"></i>
+            <span>Kelimelerin Tekrarını Yeniden Yap</span>
+          </button>
+
+          <!-- Buton 2: Direkt Teste Başla -->
+          <button id="choice-start-quiz-btn" class="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs sm:text-sm shadow-xl shadow-emerald-600/30 transition flex items-center justify-center gap-2 active:scale-95 border border-emerald-400/40">
+            <i data-lucide="play" class="w-4 h-4 fill-white"></i>
+            <span>Direkt Teste Başla (Çoktan Seçmeli)</span>
+          </button>
+        </div>
+      </div>
+    `;
+
+    if (window.lucide) window.lucide.createIcons();
+
+    // 1. Kelimelerin Tekrarını Yeniden Yap Butonu
+    const repeatBtn = document.getElementById('choice-repeat-words-btn');
+    if (repeatBtn) {
+      repeatBtn.addEventListener('click', () => {
+        this.cardIndex = 0;
+        AudioService.playSfx('click');
+        this.renderLearnStage();
+      });
+    }
+
+    // 2. Direkt Teste Başla Butonu (4 Şıklı Çoktan Seçmeli Test)
+    const startQuizBtn = document.getElementById('choice-start-quiz-btn');
     if (startQuizBtn) {
       startQuizBtn.addEventListener('click', () => {
         AudioService.playSfx('click');
         this.activeStage = 'quiz';
         this.quizIndex = 0;
-        this.selectedAnswers = {};
         this.score = 0;
         this.wrongWords = [];
-        this.renderQuizStage();
+        this.renderFourChoiceQuizStage();
       });
     }
+  }
+
+  // AŞAMA 2: VERİTABANI KELİMELERİYLE ÇOKTAN SEÇMELİ (4 ŞIKLI) TEST
+  renderFourChoiceQuizStage() {
+    const stage = document.getElementById('game-stage');
+    if (!stage || !this.lessonData) return;
+
+    const wordsList = this.lessonData.words_data || [];
+    const currentWord = wordsList[this.quizIndex];
+
+    if (!currentWord) {
+      this.renderQuizResults();
+      return;
+    }
+
+    updateGameScore(this.score);
+
+    // 4 şık oluştur: 1 doğru + veritabanındaki diğer kelimelerden rastgele 3 yanlış
+    const otherWords = WordStore.getWords().filter(w => (w.en || '').toLowerCase() !== currentWord.english.toLowerCase());
+    const randomWrong = getRandomSample(otherWords, 3);
+    const optionsRaw = shuffleArray([
+      { text: currentWord.turkish, isCorrect: true },
+      ...randomWrong.map(w => ({ text: w.tr, isCorrect: false }))
+    ]);
+
+    const letters = ['A', 'B', 'C', 'D'];
+    const options = optionsRaw.map((opt, idx) => ({
+      letter: letters[idx] || 'A',
+      text: opt.text,
+      isCorrect: opt.isCorrect
+    }));
+
+    stage.innerHTML = `
+      <div class="w-full max-w-xl flex flex-col items-center pb-6">
+        <!-- İlerleme -->
+        <div class="w-full flex items-center justify-between text-xs text-slate-400 mb-2 px-1">
+          <span>Test: Soru ${this.quizIndex + 1} / ${wordsList.length} (Seviye ${this.currentLevel})</span>
+          <span class="text-emerald-400 font-bold">Skor: ${this.score}</span>
+        </div>
+        <div class="w-full h-1.5 bg-slate-800 rounded-full mb-6 overflow-hidden border border-slate-700/60">
+          <div class="h-full bg-emerald-500 transition-all duration-300" style="width: ${((this.quizIndex + 1) / wordsList.length) * 100}%"></div>
+        </div>
+
+        <!-- Soru Kartı -->
+        <div class="w-full bg-slate-800/90 border border-slate-700 rounded-2xl p-6 sm:p-8 text-center shadow-xl mb-6">
+          <span class="text-xs uppercase tracking-widest text-emerald-400 font-semibold mb-2 block">
+            Kelimenin Türkçe Karşılığını Seçin
+          </span>
+          <h2 class="text-3xl sm:text-4xl font-extrabold text-white mb-2 font-display">
+            ${currentWord.english}
+          </h2>
+          ${currentWord.pronunciation ? `<p class="text-xs sm:text-sm font-mono text-slate-400 mb-2">[${currentWord.pronunciation}]</p>` : ''}
+          <div class="mt-3 p-3 bg-slate-900/60 rounded-xl border border-slate-800 text-xs text-slate-400 italic">
+            &ldquo;${currentWord.example_en}&rdquo;
+          </div>
+        </div>
+
+        <!-- 4 Şık Grid -->
+        <div class="w-full grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6" id="lesson-quiz-options-container">
+          ${options.map(opt => `
+            <button class="game-option-btn lesson-opt-btn" data-correct="${opt.isCorrect}">
+              <span class="flex items-center gap-2">
+                <span class="w-6 h-6 rounded-md bg-slate-700/80 text-xs font-mono flex items-center justify-center text-slate-300 font-bold">${opt.letter}</span>
+                <span class="font-medium">${opt.text}</span>
+              </span>
+              <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500"></i>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    if (window.lucide) window.lucide.createIcons();
+
+    const buttons = document.querySelectorAll('.lesson-opt-btn');
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        buttons.forEach(b => b.disabled = true);
+        const isCorrect = btn.getAttribute('data-correct') === 'true';
+
+        if (isCorrect) {
+          btn.classList.add('correct');
+          this.score++;
+          AudioService.playSfx('correct');
+        } else {
+          btn.classList.add('wrong');
+          this.wrongWords.push(currentWord.english);
+          AudioService.playSfx('wrong');
+          // Yanlış kelimeyi kullanıcının Neon DB Zorlu Kelimeler tablosuna ekle
+          WordStore.recordMistake(currentWord.english, 'lessons');
+
+          buttons.forEach(b => {
+            if (b.getAttribute('data-correct') === 'true') {
+              b.classList.add('correct');
+            }
+          });
+        }
+
+        setTimeout(() => {
+          if (this.quizIndex < wordsList.length - 1) {
+            this.quizIndex++;
+            this.renderFourChoiceQuizStage();
+          } else {
+            this.renderQuizResults();
+          }
+        }, 1100);
+      });
+    });
   }
 
   // AŞAMA 2: 5 ŞIKLI BOŞLUK DOLDURMA TESTİ (2. Görseldeki Yapı)
