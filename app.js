@@ -37,9 +37,25 @@ const WordStore = {
 
   // Ana kelime listesi ASLA filtrelenmiş listeyle ezilmez; aktif havuz her
   // çağrıda kutucukların O ANKİ durumuna göre dinamik hesaplanır.
-  // (getWords ile aynı sözleşme; okunabilirlik için takma ad.)
+  // Kesin kural:
+  //   A) İkisi de kapalı -> tüm kelimeler (5230)
+  //   B) Yalnız zorlu    -> zorlu kelimeler
+  //   C) Yalnız özel     -> özel liste
+  //   D) İkisi açık      -> birleşim (union)
   getActiveWordPool() {
+    this.syncFiltersFromDOM();
     return this.getWords();
+  },
+
+  // Kutucukların gerçek (checked) durumunu okuyup state bayraklarını senkronlar.
+  // Böylece state ile DOM hiçbir zaman ayrışmaz (ID uyuşmazlığı/dış değişiklik
+  // olsa bile havuz daima kutucuğun o anki durumuna göre hesaplanır).
+  syncFiltersFromDOM() {
+    if (typeof document === 'undefined' || !document.getElementById) return;
+    const studyEl = document.getElementById('custom-study-filter-toggle');
+    const hardEl = document.getElementById('custom-difficult-filter-toggle');
+    if (studyEl) this.useOnlyStudyList = studyEl.checked === true;
+    if (hardEl) this.useOnlyDifficult = hardEl.checked === true;
   },
 
   // Filtre durumunu localStorage'a yazar (çevrimdışı/yeniden yükleme tutarlılığı).
@@ -1188,6 +1204,9 @@ function launchGame(gameId) {
     return;
   }
 
+  // Her kategori açılışında kutucukların gerçek durumunu oku (state/DOM senkron).
+  WordStore.syncFiltersFromDOM();
+
   const words = WordStore.getWords();
   if (words.length === 0) {
     if (WordStore.useOnlyStudyList) {
@@ -1244,10 +1263,12 @@ function launchGame(gameId) {
 }
 
 function closeGame() {
+  // Ana menüye dönüldüğünde modül örneğini tamamen bırak: bir sonraki oyun
+  // havuzunu doğrudan güncel filtre durumundan yeniden kurar.
   if (currentGameInstance && typeof currentGameInstance.destroy === 'function') {
     currentGameInstance.destroy();
-    currentGameInstance = null;
   }
+  currentGameInstance = null;
   const dashboard = document.getElementById('dashboard-view');
   const playView = document.getElementById('game-play-view');
   playView.classList.add('hidden');
@@ -1266,16 +1287,28 @@ function shuffleArray(array) {
   return arr;
 }
 
-// Zorlu kelimeleri (yanlış sayısı yüksek) havuzun önüne alacak şekilde karıştırır.
-// Böylece filtre kapalıyken bile "Zorlu Kelimeler" listesindeki kelimeler oyunlarda
-// öncelikli/erken karşımıza çıkar (tamamı zorluysa salt rastgele kalır).
+// Zorlu kelimeleri havuzun önüne alacak şekilde karıştırır — YALNIZCA
+// "Sadece Zorlu Kelimelerle Çalış" filtresi AÇIKKEN. Filtre kapalıyken hiçbir
+// yapay ağırlıklandırma/öncelik uygulanmaz; tam havuz eşit ihtimalle karışır.
 function prioritizedShuffle(array) {
   const arr = Array.isArray(array) ? array : [];
   if (arr.length === 0) return [];
+  if (!WordStore.useOnlyDifficult) return shuffleArray(arr);
   const difficult = arr.filter(w => w && (w.wrongCount || 0) > 0);
   const rest = arr.filter(w => !w || (w.wrongCount || 0) <= 0);
   if (difficult.length === 0 || rest.length === 0) return shuffleArray(arr);
   return [...shuffleArray(difficult), ...shuffleArray(rest)];
+}
+
+// Oturum için N kelime seçer. Filtre kapalıyken tam havuzdan EŞİT ihtimalle
+// rastgele örnekler (zorlu kelimeler öne alınmaz); "Sadece Zorlu" filtresi
+// açıkken zorlu kelimelere öncelik verir. Böylece filtre kapalıyken oyunlar
+// yalnızca zorlu kelimeleri sormaz.
+function pickSessionWords(pool, count) {
+  const arr = Array.isArray(pool) ? pool : [];
+  if (arr.length === 0) return [];
+  if (WordStore.useOnlyDifficult) return prioritizedShuffle(arr).slice(0, count);
+  return getRandomSample(arr, count);
 }
 
 // Yardımcı fonksiyon: 5000+ kelimelik büyük havuzdan O(1) maliyetle N adet rastgele örnekleme (Random Sampling)
@@ -1301,9 +1334,10 @@ function getRandomSample(array, count) {
 // ============================================================================
 class FlashcardsGame {
   constructor() {
-    // 5000+ kelimede anlık yanıt için 20 kelimelik çalışma paketi
-    // (zorlu kelimeler paketin başına öncelikli gelir)
-    this.words = prioritizedShuffle(WordStore.getWords()).slice(0, 20);
+    // 5000+ kelimede anlık yanıt için 20 kelimelik çalışma paketi.
+    // Filtre kapalıyken tam havuzdan eşit ihtimalle rastgele seçilir;
+    // "Sadece Zorlu" filtresi açıkken zorlu kelimeler öncelikli gelir.
+    this.words = pickSessionWords(WordStore.getWords(), 20);
     this.currentIndex = 0;
     this.isFlipped = false;
     this.knownCount = 0;
@@ -1674,15 +1708,18 @@ class MultipleChoiceGame {
     this.timeoutIds = [];
   }
 
-  // Aşama sırası: kilitli değil, çözülmemiş, oturumda görülmemiş; zorlu kelimeler öncelikli
+  // Aşama sırası: kilitli değil, çözülmemiş, oturumda görülmemiş.
+  // Filtre kapalıyken eşit ihtimalle rastgele; "Sadece Zorlu" açıkken zorlu öncelikli.
   _pickNewWords(count) {
     const pool = this.allWords.filter(w => {
       const id = String(w.id);
       return !this.seenSessionWordIds.has(id) && !this._isMastered(w);
     });
-    const difficult = shuffleArray(pool.filter(w => (w.wrongCount || 0) > 0));
-    const rest = shuffleArray(pool.filter(w => (w.wrongCount || 0) === 0));
-    const selected = [...difficult, ...rest].slice(0, count);
+    if (pool.length === 0) return [];
+    const selected = WordStore.useOnlyDifficult
+      ? [...shuffleArray(pool.filter(w => (w.wrongCount || 0) > 0)),
+         ...shuffleArray(pool.filter(w => (w.wrongCount || 0) === 0))].slice(0, count)
+      : getRandomSample(pool, count);
     selected.forEach(w => this.seenSessionWordIds.add(String(w.id)));
     return selected;
   }
@@ -2561,8 +2598,8 @@ class MatchingGame {
     this._stopTimer();
     this.phase = 'play';
     const pairs = this._pairs();
-    // Zorlu kelimeler öncelikli olarak seçilir (filtre kapalıyken de öne çıksın)
-    const sample = prioritizedShuffle(this.pool).slice(0, pairs);
+    // Filtre kapalıyken tam havuzdan eşit ihtimalle; "Sadece Zorlu" açıkken öncelikli.
+    const sample = pickSessionWords(this.pool, pairs);
 
     this.enCards = shuffleArray(sample.map((w, idx) => ({
       id: `en_${w.id}_${idx}`, wordId: w.id, text: w.en, type: 'en', matched: false, word: w
