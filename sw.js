@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v2.1.0';
+const CACHE_VERSION = 'v2.2.0';
 const CACHE_NAME = `kelime-ezber-cache-${CACHE_VERSION}`;
 
 // Service Worker kurulumunda beklemeyi atla ve anında devreye gir
