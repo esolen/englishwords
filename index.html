@@ -27,7 +27,7 @@
   <!-- Tesseract.js (El Yazısı OCR Motoru) CDN -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <!-- Yerel Stiller (Cache Busting v=2.0) -->
-  <link rel="stylesheet" href="style.css?v=3.0">
+  <link rel="stylesheet" href="style.css?v=4.0">
   <script>
     tailwind.config = {
       theme: {
@@ -474,7 +474,7 @@
               <i data-lucide="bomb" class="w-6 h-6"></i>
             </div>
             <h4 class="font-display font-bold text-lg text-white group-hover:text-rose-300 transition">Kelime Bombası</h4>
-            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Fitil yanıp tükenmeden harfleri doğru sıraya dizerek bombayı etkisiz hâle getir.</p>
+            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Fitil yanıp tükenmeden doğru Türkçe anlamı 4 şık arasından seçerek bombayı etkisiz hâle getir.</p>
             <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
               <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="timer" class="w-3.5 h-3.5"></i> Refleks &amp; Hız</span>
               <span class="text-xs font-semibold text-rose-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
@@ -514,6 +514,19 @@
               <span>Skor:</span>
               <span id="game-score-display" class="font-mono text-white">0</span>
             </div>
+          </div>
+        </div>
+
+        <!-- Kelime Bombası: Üst bar Fitil / Süre Çubuğu (yalnızca bu modülde görünür) -->
+        <div id="game-fuse-container" class="hidden mb-2 sm:mb-4 px-2.5 sm:px-4">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[11px] font-bold text-amber-400 flex items-center gap-1">
+              <i data-lucide="flame" class="w-3.5 h-3.5"></i> FİTİL
+            </span>
+            <span class="text-[11px] font-mono font-bold text-slate-300"><span id="game-fuse-label">8</span>s</span>
+          </div>
+          <div class="w-full h-3 bg-slate-900 rounded-full overflow-hidden border border-rose-500/30">
+            <div id="game-fuse-bar" class="h-full bg-gradient-to-r from-amber-500 to-rose-500 transition-all duration-150 ease-linear" style="width: 100%;"></div>
           </div>
         </div>
 
@@ -648,6 +661,6 @@
   <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
 
   <!-- Yerel Uygulama Scripti (Cache Busting v=3.0) -->
-  <script src="app.js?v=3.0"></script>
+  <script src="app.js?v=4.0"></script>
 </body>
 </html>

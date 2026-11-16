@@ -30,7 +30,8 @@ Vercel serverless fonksiyonları (`api/*.js`) + Neon PostgreSQL backend.
   → `/api/words/wrong` + `AuthStore.recordStatToBackend()` → `/api/statistics/update`.
   Oyun sonunda tekrar kaydetmeyin (mükerrer sayım olur).
 - "Ekstra Oyunlar Odası" (arcade) ve "Düşen Kelimeler" **kaldırıldı**; geri eklemeyin.
-  Kelime Bombası artık ana ekranda bağımsız karttır.
+  Kelime Bombası artık ana ekranda bağımsız karttır ve **4 şıklı hızlı yarış** mekaniğiyle
+  çalışır (fitil + 3 can + 2x2 şık paneli). Eski harf dizme/kutucuk arayüzünü geri eklemeyin.
 - Seviye ilerlemesi yalnızca sunucu `leveled_up` döndüğünde (ilgili seviyenin TÜM kelimeleri
   tamamlanınca) yükselir; başarılı ama eksik testte aynı seviyede sonraki 10 kelime gelir.
 - Test/quiz sırası Fisher-Yates ile karıştırılır; şık sırası da her soruda karışır.
