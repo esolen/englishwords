@@ -654,3 +654,27 @@ body.dashboard-editing .game-card.card-locked { cursor: not-allowed; opacity: 0.
   border-color: rgba(96, 165, 250, 0.7);
   color: #93c5fd;
 }
+
+/* "Bunu Öğrendim (Zorlu Listesinden Çıkar)" butonu — yalnızca zorlu kelimelerde görünür */
+.learned-hard-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  max-width: 24rem;
+  margin-top: 0.75rem;
+  padding: 0.6rem 1rem;
+  border-radius: 0.9rem;
+  background: linear-gradient(90deg, #059669, #0d9488);
+  color: #ffffff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  box-shadow: 0 10px 24px -10px rgba(5, 150, 105, 0.6);
+  cursor: pointer;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.learned-hard-btn:hover { filter: brightness(1.08); }
+.learned-hard-btn:active { transform: scale(0.96); }
+.learned-hard-btn-inline { width: auto; margin-top: 0; }
