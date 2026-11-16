@@ -30,12 +30,13 @@ module.exports = async function handler(req, res) {
   try {
     await ensureTables();
 
-    // YDS alanları atanmamış kelimeler varsa kalıcı olarak zenginleştir.
-    // (Veri kaybı yok; yalnızca boş yds_level/part_of_speech/synonyms alanları doldurulur.)
+    // YDS alanları atanmamış kelimeleri zenginleştir. İşlem tek toplu UPDATE ile ve
+    // satır sayısı sınırlı (maxRows) yapılır; böylece büyük listelerde yanıt zaman aşımına
+    // uğramaz. Kalan kelimeler sonraki isteklerde kademeli olarak zenginleştirilir.
     try {
-      await backfillYdsLevels(pool, { userId, force: false });
+      await backfillYdsLevels(pool, { userId, force: false, maxRows: 400 });
     } catch (enrichErr) {
-      console.warn('YDS enrichment skipped:', enrichErr.message);
+      console.warn('YDS enrichment skipped:', enrichErr && enrichErr.message);
     }
 
     const result = await pool.query(

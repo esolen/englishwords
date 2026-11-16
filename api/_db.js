@@ -141,7 +141,7 @@ function normalizeWordKey(value) {
  *
  * @returns {{ scanned:number, updated:number, distribution:Object }}
  */
-async function backfillYdsLevels(pool, { userId = null, force = false } = {}) {
+async function backfillYdsLevels(pool, { userId = null, force = false, maxRows = 0 } = {}) {
   const yds = require('./_yds');
 
   const where = ['(yds_level IS NULL OR yds_level = 0 OR $1::boolean = true)'];
@@ -151,11 +151,12 @@ async function backfillYdsLevels(pool, { userId = null, force = false } = {}) {
     params.push(userId);
   }
 
+  const limitClause = maxRows > 0 ? ` LIMIT ${parseInt(maxRows, 10)}` : '';
   const selectSql = `
     SELECT id, user_id, english, turkish, pronunciation, example_en, example_tr, pos
       FROM user_words
      WHERE ${where.join(' AND ')}
-     ORDER BY id ASC
+     ORDER BY id ASC${limitClause}
   `;
 
   const rows = (await pool.query(selectSql, params)).rows;
@@ -174,24 +175,42 @@ async function backfillYdsLevels(pool, { userId = null, force = false } = {}) {
   const allWords = (await pool.query(poolSql, userId ? [userId] : [])).rows;
 
   let updated = 0;
+  const ids = [];
+  const levels = [];
+  const posList = [];
+  const synList = [];
+  const exEnList = [];
+  const exTrList = [];
+
   for (const row of rows) {
     const result = yds.classifyWord(row, allWords);
     distribution[result.yds_level] = (distribution[result.yds_level] || 0) + 1;
-    await pool.query(
-      `UPDATE user_words
-          SET yds_level = $1, part_of_speech = $2, synonyms = $3,
-              example_en = $4, example_tr = $5, pos = CASE WHEN pos IS NULL OR pos = '' THEN $2 ELSE pos END
-        WHERE id = $6`,
-      [
-        result.yds_level,
-        result.part_of_speech,
-        JSON.stringify(result.synonyms),
-        result.example_en,
-        result.example_tr,
-        row.id
-      ]
-    );
+    ids.push(row.id);
+    levels.push(result.yds_level);
+    posList.push(result.part_of_speech);
+    synList.push(JSON.stringify(result.synonyms));
+    exEnList.push(result.example_en);
+    exTrList.push(result.example_tr);
     updated++;
+  }
+
+  // Tek toplu UPDATE: satır başına sorgu yerine unnest ile tek gidiş-dönüş.
+  if (ids.length > 0) {
+    await pool.query(
+      `UPDATE user_words AS uw
+          SET yds_level = v.yds_level,
+              part_of_speech = v.part_of_speech,
+              synonyms = v.synonyms::jsonb,
+              example_en = v.example_en,
+              example_tr = v.example_tr,
+              pos = CASE WHEN uw.pos IS NULL OR uw.pos = '' THEN v.part_of_speech ELSE uw.pos END
+         FROM (
+           SELECT * FROM unnest($1::int[], $2::int[], $3::text[], $4::text[], $5::text[], $6::text[])
+             AS t(id, yds_level, part_of_speech, synonyms, example_en, example_tr)
+         ) AS v
+        WHERE uw.id = v.id`,
+      [ids, levels, posList, synList, exEnList, exTrList]
+    );
   }
 
   const fullDist = await ydsDistribution(pool, userId);
