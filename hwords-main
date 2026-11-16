@@ -1,0 +1,31 @@
+[33mcommit b7348670a4051ddcc0de122106c2c645b68fa387[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Merge: 399a358 8c5404d
+Author: esolen <enginsolenmta@gmail.com>
+Date:   Tue Nov 10 14:14:18 2026 +0300
+
+    Merge pull request #27 from esolen/jules-17901077179953773341-749dfe57
+    
+    Classify Kolaydan Zora by CEFR/YDS with dynamic sentences
+
+[33mcommit 8c5404dc5e475beaca284a6ea7bb1353168a0e70[m
+Author: google-labs-jules[bot] <161369871+google-labs-jules[bot]@users.noreply.github.com>
+Date:   Tue Nov 10 11:13:26 2026 +0000
+
+    Classify Kolaydan Zora by CEFR/YDS with dynamic sentences
+    
+    - Replace alphabetical sorting with CEFR/YDS grading (A1-A2, B1-B2, C1-C2)
+    - Prioritize high-frequency foundational words in Level 1; penalize archaic words
+    - Completely eliminate repetitive 'understand X' template sentences
+    - Generate authentic contextual sentences and 5-choice quizzes via Gemini Flash API
+    - Invalidate outdated template cache in generated_lessons and prevent word repeats
+    
+    Co-authored-by: esolen <293191926+esolen@users.noreply.github.com>
+
+[33mcommit 399a358d65f0266c61b980f21aa82c26b9e407f5[m
+Merge: e4a4f04 f23d4be
+Author: esolen <enginsolenmta@gmail.com>
+Date:   Tue Nov 10 14:06:14 2026 +0300
+
+    Merge pull request #26 from esolen/jules-17901077179953773341-749dfe57
+    
+    Sync Kolaydan Zora with full pool and YDS difficulty tiers
