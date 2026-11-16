@@ -344,6 +344,32 @@ function updateHeaderBadges() {
   if (inlineStudyBadge) inlineStudyBadge.textContent = studyListSize;
 
   renderWordsTable();
+  updateArcadePoolBanner();
+}
+
+// Ekstra Oyunlar Odası — aktif kelime havuzu bilgi şeridini güncelle
+function updateArcadePoolBanner() {
+  const banner = document.getElementById('arcade-pool-banner');
+  const text = document.getElementById('arcade-pool-banner-text');
+  if (!banner || !text) return;
+
+  const allCount = WordStore.getAllWords().length;
+  const poolCount = WordStore.getWords().length;
+  const studyOn = WordStore.useOnlyStudyList;
+
+  if (studyOn) {
+    banner.classList.remove('hidden');
+    if (poolCount < 4) {
+      text.innerHTML = `<span class="text-amber-300 font-semibold">Sadece Seçtiğin Kelimelerle Çalış</span> filtresi aktif: <span class="font-bold text-white">${poolCount}</span> kelime seçili. Bazı oyunlar için en az 4 kelime gerekir. Üst menüden filtreyi kapatabilir veya daha fazla kelime yıldızlayabilirsiniz.`;
+    } else {
+      text.innerHTML = `<span class="text-amber-300 font-semibold">Sadece Seçtiğin Kelimelerle Çalış</span> filtresi aktif: <span class="font-bold text-white">${poolCount}</span> seçili kelime ile oynuyorsunuz.`;
+    }
+  } else {
+    banner.classList.remove('hidden');
+    text.innerHTML = `Tüm kelime havuzu aktif: <span class="font-bold text-white">${allCount}</span> kelime. İsterseniz üst menüden <span class="text-amber-300 font-semibold">"Sadece Seçtiğin Kelimelerle Çalış"</span> filtresini açabilirsiniz.`;
+  }
+
+  if (window.lucide) window.lucide.createIcons();
 }
 
 // 6. Veritabanı Yönetimi Tablo Render (Debounced & Sayfalanmış / Performanslı)
@@ -445,7 +471,10 @@ function setupModals() {
   if (closeDbBtn) closeDbBtn.addEventListener('click', closeDb);
   if (closeDbConfirmBtn) closeDbConfirmBtn.addEventListener('click', closeDb);
 
-  const openExtra = () => extraModal.classList.remove('hidden');
+  const openExtra = () => {
+    updateArcadePoolBanner();
+    extraModal.classList.remove('hidden');
+  };
   const closeExtra = () => extraModal.classList.add('hidden');
 
   if (openExtraCard) openExtraCard.addEventListener('click', openExtra);
@@ -694,7 +723,19 @@ function updateGameScore(score) {
   if (scoreDisplay) scoreDisplay.textContent = score;
 }
 
+// "Ekstra Oyunlar Odası" (arcade) oyun kimlikleri — izole modül tarafından yönetilir
+const ARCADE_GAME_IDS = [
+  'wordle', 'lane-runner', 'word-race', 'word-bomb',
+  'word-pop', 'word-defense', 'word-funnel', 'shadow-listening'
+];
+
 function launchGame(gameId) {
+  // Ekstra Oyunlar Odası oyunları izole GamesRoomManager modülüne yönlendirilir
+  if (ARCADE_GAME_IDS.includes(gameId) && typeof GamesRoomManager !== 'undefined') {
+    GamesRoomManager.launch(gameId);
+    return;
+  }
+
   // Route Guard: Oturum yoksa oyuna girmeyi engelle
   if (!AuthStore.user || !AuthStore.user.id) {
     AuthStore.showGate();
@@ -754,6 +795,12 @@ function launchGame(gameId) {
 }
 
 function closeGame() {
+  // Arcade oyunu aktifse izole modül üzerinden oyun odalarına dön
+  if (typeof GamesRoomManager !== 'undefined' && GamesRoomManager.getActiveGameId && GamesRoomManager.getActiveGameId()) {
+    GamesRoomManager.openRoom();
+    return;
+  }
+
   if (currentGameInstance && typeof currentGameInstance.destroy === 'function') {
     currentGameInstance.destroy();
     currentGameInstance = null;
@@ -2993,1192 +3040,1677 @@ GAMES['falling-words'] = FallingWordsGame;
 
 
 // ============================================================================
-// EKSTRA MİNİ OYUN 1: WORDLE (5-6 HARFLİ KELİME TAHMİNİ)
+// EKSTRA OYUNLAR ODASI (ARCADE) — İZOLE MODÜL
+// Tüm durum, zamanlayıcı, event listener ve yardımcı fonksiyonlar bu IIFE
+// (GamesRoomManager) altında kapsüllenmiştir. Diğer modüllerin global
+// değişkenleri / event listener'ları ile çakışmaz. Dışa açılan tek arayüz
+// window.GamesRoomManager üzerindeki launch() ve openRoom() metotlarıdır.
 // ============================================================================
-class WordleGame {
-  constructor() {
-    const all = WordStore.getWords();
-    // 4 ila 7 harfli kelimeleri öncelikle filtrele
-    const candidates = all.filter(w => !w.en.includes(' ') && w.en.length >= 4 && w.en.length <= 7);
-    this.targetWord = candidates.length > 0
-      ? candidates[Math.floor(Math.random() * candidates.length)]
-      : all[0];
-    this.targetLetters = this.targetWord.en.toUpperCase().split('');
-    this.wordLength = this.targetLetters.length;
-    this.maxGuesses = 6;
-    this.guesses = [];
-    this.currentGuess = '';
-    this.isOver = false;
+const GamesRoomManager = (function () {
+  'use strict';
+
+  // --------------------------------------------------------------------------
+  // 1) VERİ NORMALİZASYONU VE YARDIMCILAR
+  // --------------------------------------------------------------------------
+  function enUp(str) { return String(str == null ? '' : str).toLocaleUpperCase('en-US'); }
+  function enLow(str) { return String(str == null ? '' : str).toLocaleLowerCase('en-US'); }
+
+  function normalizeGameWord(item) {
+    if (!item) return null;
+    const en = item.en != null ? item.en
+      : item.english != null ? item.english
+      : item.word != null ? item.word
+      : item.english_word != null ? item.english_word : '';
+    const tr = item.tr != null ? item.tr
+      : item.turkish != null ? item.turkish
+      : item.meaning != null ? item.meaning
+      : item.meaning_tr != null ? item.meaning_tr : '';
+    const cleanEn = String(en).trim();
+    const cleanTr = String(tr).trim();
+    if (!cleanEn || !cleanTr) return null;
+    const rawId = item.id != null ? item.id : (item._id != null ? item._id : cleanEn);
+    return {
+      id: String(rawId),
+      en: cleanEn,
+      tr: cleanTr,
+      ipa: item.ipa || item.pronunciation || '',
+      example_en: item.example_en || '',
+      example_tr: item.example_tr || '',
+      pos: item.pos || '',
+      wrongCount: Number(item.wrongCount || item.wrong_count || 0) || 0
+    };
   }
 
-  init() {
-    setGameHeader('Wordle', `Türkçe ipucu ile ${this.wordLength} harfli İngilizce kelimeyi bul!`);
-    this.render();
+  function formatShortMeaning(meaning, max = 32) {
+    const s = String(meaning == null ? '' : meaning).trim();
+    if (s.length <= max) return s;
+    const cut = s.slice(0, max);
+    const lastSep = Math.max(cut.lastIndexOf(','), cut.lastIndexOf(';'));
+    const base = lastSep > max * 0.4 ? cut.slice(0, lastSep) : cut;
+    return base.trim() + '...';
   }
 
-  render() {
+  function firstMeaning(meaning) {
+    const s = String(meaning == null ? '' : meaning).trim();
+    if (!s) return '';
+    const idx = s.search(/[,;/]/);
+    return idx > 0 ? s.slice(0, idx).trim() : s;
+  }
+
+  function shuffle(arr) {
+    const a = Array.isArray(arr) ? arr.slice() : [];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  const ALPHA_RE = /^[a-zA-Z]{3,10}$/;
+  function isAlphaWord(w) {
+    return !!w && ALPHA_RE.test(w.en) && !w.en.includes(' ') && !w.en.includes('-') && !w.en.includes("'");
+  }
+
+  function createDeck(words) {
+    const pool = words.slice();
+    let queue = shuffle(pool);
+    return {
+      next() {
+        if (pool.length === 0) return null;
+        if (queue.length === 0) queue = shuffle(pool);
+        return queue.pop();
+      },
+      get size() { return pool.length; }
+    };
+  }
+
+  function pickDistractors(target, pool, count) {
+    const usedMeanings = new Set([enLow(firstMeaning(target.tr))]);
+    const out = [];
+    const shuffled = shuffle(pool);
+    for (let i = 0; i < shuffled.length && out.length < count; i++) {
+      const w = shuffled[i];
+      if (w.id === target.id) continue;
+      const key = enLow(firstMeaning(w.tr));
+      if (usedMeanings.has(key)) continue;
+      usedMeanings.add(key);
+      out.push(w);
+    }
+    return out;
+  }
+
+  function speakWordSafely(text, rate) {
+    try {
+      if (!text || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(String(text));
+      u.lang = 'en-US';
+      u.rate = typeof rate === 'number' ? rate : 0.95;
+      const voices = window.speechSynthesis.getVoices() || [];
+      const voice = voices.find(v => /^en[-_]US/i.test(v.lang))
+        || voices.find(v => /^en[-_]GB/i.test(v.lang))
+        || voices.find(v => /^en/i.test(v.lang));
+      if (voice) u.voice = voice;
+      window.speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+
+  // --------------------------------------------------------------------------
+  // 2) HUD (ÜST ÇUBUK) YÖNETİMİ
+  // --------------------------------------------------------------------------
+  const HUD = {
+    originalTitle: null,
+    originalSubtitle: null,
+    captured: false,
+    capture() {
+      if (this.captured) return;
+      const t = document.getElementById('active-game-title');
+      const s = document.getElementById('active-game-subtitle');
+      this.originalTitle = t ? t.textContent : null;
+      this.originalSubtitle = s ? s.textContent : null;
+      this.captured = true;
+    },
+    restore() {
+      if (!this.captured) return;
+      const t = document.getElementById('active-game-title');
+      const s = document.getElementById('active-game-subtitle');
+      if (t && this.originalTitle != null) t.textContent = this.originalTitle;
+      if (s && this.originalSubtitle != null) s.textContent = this.originalSubtitle;
+      this.captured = false;
+    },
+    setTitle(title, subtitle) {
+      const t = document.getElementById('active-game-title');
+      const s = document.getElementById('active-game-subtitle');
+      if (t) t.textContent = title;
+      if (s && subtitle) s.textContent = subtitle;
+    },
+    setScore(score) {
+      const el = document.getElementById('game-score-display');
+      if (el) el.textContent = String(score);
+    },
+    setLives(lives) {
+      const c = document.getElementById('game-lives-container');
+      const d = document.getElementById('game-lives-display');
+      if (c) { c.classList.remove('hidden'); c.classList.add('flex'); }
+      if (d) d.textContent = String(Math.max(0, lives));
+    },
+    hideLives() {
+      const c = document.getElementById('game-lives-container');
+      if (c) { c.classList.add('hidden'); c.classList.remove('flex'); }
+    },
+    setTimer(seconds) {
+      const c = document.getElementById('game-timer-container');
+      const d = document.getElementById('game-timer-display');
+      if (c) { c.classList.remove('hidden'); c.classList.add('flex'); }
+      if (d) d.textContent = String(Math.max(0, Math.ceil(seconds)));
+    },
+    hideTimer() {
+      const c = document.getElementById('game-timer-container');
+      if (c) { c.classList.add('hidden'); c.classList.remove('flex'); }
+    },
+    reset() { this.setScore(0); this.hideLives(); this.hideTimer(); }
+  };
+
+  // --------------------------------------------------------------------------
+  // 3) TEMİZ KAPANIŞ (CLEANUP)
+  // --------------------------------------------------------------------------
+  let rafIds = [];
+  let timeoutIds = [];
+  let intervalIds = [];
+  let resizeObserver = null;
+  let globalKeyHandler = null;
+
+  function trackRaf(id) { rafIds.push(id); return id; }
+  function trackTimeout(id) { timeoutIds.push(id); return id; }
+  function trackInterval(id) { intervalIds.push(id); return id; }
+
+  function cleanupActiveGame() {
+    rafIds.forEach(id => { try { cancelAnimationFrame(id); } catch (e) {} });
+    rafIds = [];
+    timeoutIds.forEach(id => { try { clearTimeout(id); } catch (e) {} });
+    timeoutIds = [];
+    intervalIds.forEach(id => { try { clearInterval(id); } catch (e) {} });
+    intervalIds = [];
+    if (resizeObserver) { try { resizeObserver.disconnect(); } catch (e) {} resizeObserver = null; }
+    if (globalKeyHandler) { try { window.removeEventListener('keydown', globalKeyHandler); } catch (e) {} globalKeyHandler = null; }
+    try { if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel(); } catch (e) {}
+  }
+
+  // --------------------------------------------------------------------------
+  // 4) ORTAK OYUN SONU ÖZETİ + OTOMATİK "ZORLU KELİMELER" KAYDI
+  // --------------------------------------------------------------------------
+  function escapeHtml(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  const BEST_KEY = 'gamesroom_best_v1';
+  function readBestMap() {
+    try { const raw = localStorage.getItem(BEST_KEY); return raw ? JSON.parse(raw) : {}; }
+    catch (e) { return {}; }
+  }
+  function readBestScore(gameId) { return Number(readBestMap()[gameId] || 0) || 0; }
+  function writeBestScore(gameId, score) {
+    try { const map = readBestMap(); map[gameId] = score; localStorage.setItem(BEST_KEY, JSON.stringify(map)); } catch (e) {}
+  }
+
+  function renderGameOver(ctx, result) {
     const stage = document.getElementById('game-stage');
     if (!stage) return;
+    const gameId = ctx.gameId;
+    const score = result.score || 0;
+    const prevBest = readBestScore(gameId);
+    const isNewBest = score > prevBest;
+    if (isNewBest) writeBestScore(gameId, score);
+
+    const missed = Array.isArray(result.missed) ? result.missed : [];
+    const uniqueMissed = [];
+    const seen = new Set();
+    missed.forEach(w => { if (w && !seen.has(w.id)) { seen.add(w.id); uniqueMissed.push(w); } });
+
+    // Yanlış kelimeler oyun sırasında ctx.miss() ile zaten +1 kaydedildi;
+    // burada yalnızca skor istatistiği gönderilir (mükerrer sayımı önler).
+    try { if (typeof ctx.recordStat === 'function') ctx.recordStat(gameId, score, []); } catch (e) {}
+
+    const stats = ctx.stats || { correct: 0, wrong: 0, maxCombo: 0 };
+    const accuracy = (stats.correct + stats.wrong) > 0
+      ? Math.round((stats.correct / (stats.correct + stats.wrong)) * 100) : 0;
 
     stage.innerHTML = `
-      <div class="w-full max-w-md flex flex-col items-center">
-        <!-- Türkçe İpucu -->
-        <div class="p-3 bg-slate-800/80 border border-slate-700 rounded-xl mb-4 text-center w-full">
-          <span class="text-xs uppercase text-emerald-400 font-semibold">Türkçe Anlamı (İpucu)</span>
-          <p class="text-xl font-bold text-white font-display">${this.targetWord.tr}</p>
+      <div class="games-room-summary w-full max-w-xl mx-auto">
+        <div class="text-center mb-4">
+          <div class="w-16 h-16 rounded-2xl ${isNewBest ? 'bg-amber-500/20 text-amber-400' : 'bg-brand-500/20 text-brand-300'} mx-auto flex items-center justify-center mb-3">
+            <i data-lucide="${isNewBest ? 'award' : 'flag'}" class="w-8 h-8"></i>
+          </div>
+          <h3 class="text-2xl font-bold font-display text-white mb-1">${escapeHtml(result.title || 'Oyun Bitti')}</h3>
+          <p class="text-slate-400 text-sm">${escapeHtml(result.subtitle || '')}</p>
         </div>
 
-        <!-- Wordle Matrisi -->
-        <div class="grid gap-2 mb-6" style="grid-template-rows: repeat(${this.maxGuesses}, 1fr);">
-          ${Array.from({ length: this.maxGuesses }).map((_, rowIdx) => {
-            const guess = this.guesses[rowIdx];
-            const isCurrentRow = rowIdx === this.guesses.length;
-            const rowLetters = guess ? guess.letters : (isCurrentRow ? this.currentGuess.padEnd(this.wordLength, ' ').split('') : Array(this.wordLength).fill(' '));
-
-            return `
-              <div class="flex gap-2">
-                ${Array.from({ length: this.wordLength }).map((__, colIdx) => {
-                  const letter = (rowLetters[colIdx] || '').trim();
-                  let statusClass = 'border-slate-700 bg-slate-900/60 text-white';
-                  if (guess) {
-                    const status = guess.statuses[colIdx];
-                    if (status === 'correct') statusClass = 'correct';
-                    else if (status === 'present') statusClass = 'present';
-                    else statusClass = 'absent';
-                  }
-                  return `
-                    <div class="wordle-cell ${statusClass}">
-                      ${letter}
-                    </div>
-                  `;
-                }).join('')}
-              </div>
-            `;
-          }).join('')}
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          <div class="games-room-stat">
+            <span class="text-[11px] uppercase text-slate-400 font-semibold">Skor</span>
+            <span class="text-xl font-mono font-bold text-white">${score}</span>
+            ${isNewBest ? '<span class="text-[10px] font-bold text-amber-400 mt-0.5">YENİ REKOR!</span>' : ''}
+          </div>
+          <div class="games-room-stat">
+            <span class="text-[11px] uppercase text-slate-400 font-semibold">Doğru</span>
+            <span class="text-xl font-mono font-bold text-emerald-400">${stats.correct || 0}</span>
+          </div>
+          <div class="games-room-stat">
+            <span class="text-[11px] uppercase text-slate-400 font-semibold">Yanlış</span>
+            <span class="text-xl font-mono font-bold text-rose-400">${stats.wrong || 0}</span>
+          </div>
+          <div class="games-room-stat">
+            <span class="text-[11px] uppercase text-slate-400 font-semibold">En Uzun Seri</span>
+            <span class="text-xl font-mono font-bold text-amber-400">x${stats.maxCombo || 0}</span>
+          </div>
         </div>
 
-        <!-- Ekran Klavyesi -->
-        ${!this.isOver ? `
-          <div class="w-full flex flex-col gap-1.5 items-center">
-            <div class="flex gap-1">
-              ${'QWERTYUIOP'.split('').map(k => `<button class="w-8 h-10 rounded bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white wordle-key" data-key="${k}">${k}</button>`).join('')}
-            </div>
-            <div class="flex gap-1">
-              ${'ASDFGHJKL'.split('').map(k => `<button class="w-8 h-10 rounded bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white wordle-key" data-key="${k}">${k}</button>`).join('')}
-            </div>
-            <div class="flex gap-1">
-              <button class="px-2.5 h-10 rounded bg-brand-600 hover:bg-brand-500 text-xs font-bold text-white" id="wordle-enter">ENTER</button>
-              ${'ZXCVBNM'.split('').map(k => `<button class="w-8 h-10 rounded bg-slate-800 hover:bg-slate-700 text-xs font-bold text-white wordle-key" data-key="${k}">${k}</button>`).join('')}
-              <button class="px-2.5 h-10 rounded bg-rose-600/30 hover:bg-rose-600 text-xs font-bold text-rose-300" id="wordle-backspace">SİL</button>
+        <p class="text-center text-xs text-slate-400 mb-3">Başarı: <span class="text-white font-bold">%${accuracy}</span> &bull; Rekor: <span class="text-amber-400 font-bold">${readBestScore(gameId)}</span></p>
+
+        ${uniqueMissed.length > 0 ? `
+          <div class="mb-4">
+            <p class="text-sm font-semibold text-rose-300 mb-2 flex items-center gap-1.5">
+              <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+              Bu Oyunda Hata Yapılan / Kaçırılan Kelimeler (Zorlu Kelimelere eklendi)
+            </p>
+            <div class="space-y-2 max-h-56 overflow-y-auto pr-1">
+              ${uniqueMissed.map(w => `
+                <div class="games-room-missed-row">
+                  <div class="min-w-0">
+                    <span class="font-bold text-white">${escapeHtml(w.en)}</span>
+                    <span class="text-slate-400 text-xs block truncate" title="${escapeHtml(w.tr)}">${escapeHtml(w.tr)}</span>
+                  </div>
+                  <button class="games-room-speak-btn shrink-0" data-speak="${escapeHtml(w.en)}" title="Dinle">
+                    <i data-lucide="volume-2" class="w-4 h-4"></i>
+                  </button>
+                </div>
+              `).join('')}
             </div>
           </div>
         ` : `
-          <div class="text-center p-4">
-            <button onclick="launchGame('wordle')" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm transition">
-              Yeni Kelime Oyna &rarr;
-            </button>
+          <div class="mb-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-center text-emerald-300 text-sm">
+            Bu oyunda hiç hata yapmadın, harika!
           </div>
         `}
+
+        <div class="flex items-center justify-center gap-3 flex-wrap">
+          <button id="games-room-replay-btn" class="px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm transition flex items-center gap-1.5">
+            <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Tekrar Oyna
+          </button>
+          <button id="games-room-back-btn" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700 transition flex items-center gap-1.5">
+            <i data-lucide="layout-grid" class="w-4 h-4"></i> Oyun Odalarına Dön
+          </button>
+        </div>
       </div>
     `;
 
-    this.bindEvents();
+    if (window.lucide) window.lucide.createIcons();
+
+    stage.querySelectorAll('[data-speak]').forEach(btn => {
+      btn.addEventListener('click', () => speakWordSafely(btn.getAttribute('data-speak')));
+    });
+    const replayBtn = document.getElementById('games-room-replay-btn');
+    if (replayBtn) replayBtn.addEventListener('click', () => launch(gameId));
+    const backBtn = document.getElementById('games-room-back-btn');
+    if (backBtn) backBtn.addEventListener('click', () => openRoom());
   }
 
-  bindEvents() {
-    const keys = document.querySelectorAll('.wordle-key');
-    const enterBtn = document.getElementById('wordle-enter');
-    const backspaceBtn = document.getElementById('wordle-backspace');
+  // --------------------------------------------------------------------------
+  // 5) TEMEL OYUN SINIFI
+  // --------------------------------------------------------------------------
+  class BaseMiniGame {
+    constructor() {
+      this.rafId = null;
+      this.timers = [];
+      this.intervalId = null;
+      this.stageKeyHandler = null;
+      this.cleanupFns = [];
+    }
+    get stage() { return document.getElementById('game-stage'); }
+    afterRender() { if (window.lucide) window.lucide.createIcons(); }
+    setTimeoutTracked(fn, ms) {
+      const id = setTimeout(fn, ms);
+      this.timers.push(id); trackTimeout(id);
+      return id;
+    }
+    setIntervalTracked(fn, ms) {
+      this.intervalId = setInterval(fn, ms); trackInterval(this.intervalId);
+      return this.intervalId;
+    }
+    onStageKeydown(handler) {
+      this.stageKeyHandler = handler;
+      window.addEventListener('keydown', handler);
+    }
+    onCleanup(fn) { this.cleanupFns.push(fn); }
+    destroy() {
+      if (this.rafId) { try { cancelAnimationFrame(this.rafId); } catch (e) {} this.rafId = null; }
+      this.timers.forEach(id => { try { clearTimeout(id); } catch (e) {} });
+      this.timers = [];
+      if (this.intervalId) { try { clearInterval(this.intervalId); } catch (e) {} this.intervalId = null; }
+      if (this.stageKeyHandler) { try { window.removeEventListener('keydown', this.stageKeyHandler); } catch (e) {} this.stageKeyHandler = null; }
+      this.cleanupFns.forEach(fn => { try { fn(); } catch (e) {} });
+      this.cleanupFns = [];
+    }
+  }
 
-    const handleKey = (char) => {
-      if (this.isOver) return;
-      if (this.currentGuess.length < this.wordLength) {
-        this.currentGuess += char.toUpperCase();
-        AudioService.playSfx('click');
-        this.render();
+  function buildContext(gameId, title, subtitle) {
+    return {
+      gameId: gameId,
+      title: title,
+      subtitle: subtitle,
+      store: (typeof WordStore !== 'undefined') ? WordStore : null,
+      auth: (typeof AuthStore !== 'undefined') ? AuthStore : null,
+      best: readBestScore(gameId),
+      score: 0,
+      lives: 3,
+      combo: 0,
+      maxCombo: 0,
+      stats: { correct: 0, wrong: 0, maxCombo: 0 },
+      missed: [],
+      deck: null,
+      isOver: false,
+      // Yanlış cevap anında "Zorlu Kelimeler" istatistiğine +1 kaydet
+      miss: function (word) {
+        if (!word) return;
+        try { this.missed.push(word); } catch (e) {}
+        try {
+          if (this.store && typeof this.store.recordMistake === 'function') {
+            this.store.recordMistake(word.id, this.gameId);
+          }
+        } catch (e) {}
+      },
+      recordStat: function (gameType, score, wrongWords) {
+        try { if (this.auth && typeof this.auth.recordStatToBackend === 'function') this.auth.recordStatToBackend(gameType, score, wrongWords || []); } catch (e) {}
       }
     };
+  }
 
-    const handleBackspace = () => {
-      if (this.isOver) return;
-      if (this.currentGuess.length > 0) {
-        this.currentGuess = this.currentGuess.slice(0, -1);
-        AudioService.playSfx('click');
-        this.render();
+  // ==========================================================================
+  // OYUN 1: WORDLE
+  // ==========================================================================
+  class WordleGame extends BaseMiniGame {
+    constructor(ctx, words) {
+      super();
+      this.ctx = ctx;
+      this.words = words.filter(isAlphaWord);
+      this.deck = createDeck(this.words);
+      this.maxGuesses = 6;
+      this.startWord();
+    }
+    startWord() {
+      const w = this.deck.next();
+      if (!w) { this.endGame('Kelimeler Bitti'); return; }
+      this.target = w;
+      this.targetLetters = enUp(w.en).split('');
+      this.len = this.targetLetters.length;
+      this.guesses = [];
+      this.currentGuess = '';
+      this.wordOver = false;
+      HUD.setTitle('Wordle', `${this.len} harfli İngilizce kelimeyi bul`);
+      this.render();
+    }
+    render() {
+      const stage = this.stage; if (!stage) return;
+      HUD.setScore(this.ctx.score);
+      HUD.setLives(this.ctx.lives);
+      const kbRow = (row, extra) => row.split('').map(k =>
+        `<button class="games-room-key ${this.keyClass(k)}" data-key="${k}">${k}</button>`).join('');
+      stage.innerHTML = `
+        <div class="w-full max-w-md flex flex-col items-center">
+          <div class="w-full p-3 rounded-xl bg-slate-800/80 border border-slate-700 mb-3 text-center">
+            <span class="text-[11px] uppercase text-emerald-400 font-semibold">Türkçe İpucu</span>
+            <p class="text-xl font-bold text-white font-display">${escapeHtml(this.target.tr)}</p>
+          </div>
+          <div class="grid gap-1.5 mb-4">
+            ${Array.from({ length: this.maxGuesses }).map((_, r) => {
+              const g = this.guesses[r];
+              const isCur = r === this.guesses.length && !this.wordOver;
+              const letters = g ? g.letters : (isCur ? this.currentGuess.padEnd(this.len, ' ').split('') : Array(this.len).fill(' '));
+              return `<div class="flex gap-1.5 justify-center" data-row="${r}">
+                ${Array.from({ length: this.len }).map((__, c) => {
+                  const ch = (letters[c] || '').trim();
+                  let cls = 'games-room-wordle-cell';
+                  if (g) cls += ' ' + g.statuses[c];
+                  return `<div class="${cls}" ${g ? `style="animation-delay:${c * 90}ms"` : ''}>${escapeHtml(ch)}</div>`;
+                }).join('')}
+              </div>`;
+            }).join('')}
+          </div>
+          ${this.wordOver ? `
+            <div class="w-full flex flex-col items-center gap-3">
+              <div class="flex items-center gap-2 text-white font-bold">
+                <span>Kelime: <span class="text-emerald-400">${escapeHtml(this.target.en)}</span></span>
+                <button class="games-room-speak-btn" data-speak="${escapeHtml(this.target.en)}"><i data-lucide="volume-2" class="w-4 h-4"></i></button>
+              </div>
+              <button id="wordle-next" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm">Sonraki Kelime &rarr;</button>
+            </div>
+          ` : `
+            <div class="w-full flex flex-col gap-1.5 items-center">
+              <div class="flex gap-1 justify-center flex-wrap">${kbRow('QWERTYUIOP')}</div>
+              <div class="flex gap-1 justify-center flex-wrap">${kbRow('ASDFGHJKL')}</div>
+              <div class="flex gap-1 justify-center flex-wrap">
+                <button class="games-room-key games-room-key-wide" id="wordle-enter">ENTER</button>
+                ${kbRow('ZXCVBNM')}
+                <button class="games-room-key games-room-key-wide bg-rose-600/30 text-rose-300" id="wordle-back">SİL</button>
+              </div>
+            </div>
+          `}
+        </div>`;
+      this.afterRender();
+      this.bind();
+    }
+    keyClass(k) {
+      const st = this.letterStatus(k);
+      if (st === 'correct') return 'bg-emerald-600 text-white';
+      if (st === 'present') return 'bg-amber-500 text-white';
+      if (st === 'absent') return 'bg-slate-700 text-slate-400';
+      return 'bg-slate-800 text-white';
+    }
+    letterStatus(k) {
+      let best = '';
+      this.guesses.forEach(g => g.letters.forEach((ch, i) => {
+        if (ch !== k) return;
+        const s = g.statuses[i];
+        if (s === 'correct') best = 'correct';
+        else if (s === 'present' && best !== 'correct') best = 'present';
+        else if (s === 'absent' && !best) best = 'absent';
+      }));
+      return best;
+    }
+    bind() {
+      this.stage.querySelectorAll('.games-room-key[data-key]').forEach(b =>
+        b.addEventListener('click', () => this.input(b.getAttribute('data-key'))));
+      const e = document.getElementById('wordle-enter'); if (e) e.addEventListener('click', () => this.submit());
+      const bk = document.getElementById('wordle-back'); if (bk) bk.addEventListener('click', () => this.backspace());
+      const nx = document.getElementById('wordle-next'); if (nx) nx.addEventListener('click', () => this.startWord());
+      this.stage.querySelectorAll('[data-speak]').forEach(b =>
+        b.addEventListener('click', () => speakWordSafely(b.getAttribute('data-speak'))));
+      if (!this.stageKeyHandler) {
+        this.onStageKeydown(ev => {
+          if (this.ctx.isOver || this.wordOver) { if (ev.key === 'Enter' && this.wordOver) this.startWord(); return; }
+          if (ev.key === 'Enter') this.submit();
+          else if (ev.key === 'Backspace') { ev.preventDefault(); this.backspace(); }
+          else if (/^[a-zA-Z]$/.test(ev.key)) this.input(enUp(ev.key));
+        });
       }
-    };
-
-    const handleEnter = () => {
-      if (this.isOver) return;
-      if (this.currentGuess.length !== this.wordLength) {
-        showToast(`${this.wordLength} harfli bir kelime yazmalısın!`, 'warning');
-        return;
-      }
-
-      // Değerlendir
-      const guessArr = this.currentGuess.split('');
-      const statuses = Array(this.wordLength).fill('absent');
-      const targetCopy = [...this.targetLetters];
-
-      // Önce yeşilleri işaretle
-      guessArr.forEach((ch, i) => {
-        if (ch === targetCopy[i]) {
-          statuses[i] = 'correct';
-          targetCopy[i] = null;
-        }
+    }
+    input(ch) {
+      if (this.wordOver || this.currentGuess.length >= this.len) return;
+      this.currentGuess += ch;
+      if (typeof AudioService !== 'undefined') AudioService.playSfx('click');
+      this.updateCurrentRow();
+    }
+    backspace() {
+      if (this.wordOver) return;
+      this.currentGuess = this.currentGuess.slice(0, -1);
+      this.updateCurrentRow();
+    }
+    updateCurrentRow() {
+      const row = this.guesses.length;
+      const cells = this.stage.querySelectorAll(`[data-row="${row}"] .games-room-wordle-cell`);
+      if (!cells.length) { this.render(); return; }
+      cells.forEach((cell, c) => {
+        const ch = (this.currentGuess[c] || '').trim();
+        cell.textContent = ch;
       });
-
-      // Sonra sarıları işaretle
-      guessArr.forEach((ch, i) => {
-        if (statuses[i] !== 'correct' && targetCopy.includes(ch)) {
-          statuses[i] = 'present';
-          targetCopy[targetCopy.indexOf(ch)] = null;
-        }
+    }
+    submit() {
+      if (this.wordOver) return;
+      if (this.currentGuess.length !== this.len) { showToast(`${this.len} harfli kelime yazmalısın!`, 'warning'); return; }
+      const g = this.currentGuess.split('');
+      const statuses = Array(this.len).fill('absent');
+      const pool = this.targetLetters.slice();
+      g.forEach((ch, i) => { if (ch === pool[i]) { statuses[i] = 'correct'; pool[i] = null; } });
+      g.forEach((ch, i) => {
+        if (statuses[i] === 'correct') return;
+        const idx = pool.indexOf(ch);
+        if (idx > -1) { statuses[i] = 'present'; pool[idx] = null; }
       });
-
-      this.guesses.push({ letters: guessArr, statuses: statuses });
-      const isWin = statuses.every(s => s === 'correct');
-
-      if (isWin) {
-        this.isOver = true;
-        AudioService.playSfx('win');
-        WordStore.recordSuccess(this.targetWord.id);
-        updateGameScore(100 - (this.guesses.length * 10));
-        showToast('Tebrikler! Kelimeyi doğru bildiniz.', 'success');
+      this.guesses.push({ letters: g, statuses });
+      const win = statuses.every(s => s === 'correct');
+      if (win) {
+        this.wordOver = true;
+        this.ctx.score += Math.max(10, 100 - (this.guesses.length - 1) * 15);
+        this.ctx.stats.correct++;
+        this.bumpCombo(true);
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('win');
+        showToast('Tebrikler! Doğru bildin.', 'success');
       } else if (this.guesses.length >= this.maxGuesses) {
-        this.isOver = true;
-        AudioService.playSfx('wrong');
-        WordStore.recordMistake(this.targetWord.id);
-        showToast(`Bilemediniz! Kelime: ${this.targetWord.en}`, 'error');
+        this.wordOver = true;
+        this.ctx.lives--;
+        this.ctx.stats.wrong++;
+        this.bumpCombo(false);
+        this.ctx.miss(this.target);
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('wrong');
+        showToast(`Bilemedin! Kelime: ${this.target.en}`, 'error');
+        if (this.ctx.lives <= 0) { this.currentGuess = ''; this.render(); this.endGame('Canlar Bitti'); return; }
       } else {
-        AudioService.playSfx('pop');
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('pop');
       }
-
       this.currentGuess = '';
       this.render();
-    };
-
-    keys.forEach(k => k.addEventListener('click', () => handleKey(k.getAttribute('data-key'))));
-    if (enterBtn) enterBtn.addEventListener('click', handleEnter);
-    if (backspaceBtn) backspaceBtn.addEventListener('click', handleBackspace);
-
-    this.keydownListener = (e) => {
-      if (e.key === 'Enter') handleEnter();
-      else if (e.key === 'Backspace') handleBackspace();
-      else if (/^[a-zA-Z]$/.test(e.key)) handleKey(e.key);
-    };
-    window.addEventListener('keydown', this.keydownListener);
-  }
-
-  destroy() {
-    if (this.keydownListener) {
-      window.removeEventListener('keydown', this.keydownListener);
+    }
+    bumpCombo(ok) {
+      if (ok) { this.ctx.combo++; this.ctx.maxCombo = Math.max(this.ctx.maxCombo, this.ctx.combo); }
+      else { this.ctx.combo = 0; }
+    }
+    endGame(title) {
+      this.ctx.isOver = true;
+      this.ctx.stats.maxCombo = this.ctx.maxCombo;
+      renderGameOver(this.ctx, { title: title, subtitle: 'Wordle turu tamamlandı', score: this.ctx.score, missed: this.ctx.missed });
     }
   }
-}
 
-// ============================================================================
-// EKSTRA MİNİ OYUN 2: ŞERİT KOŞUSU (LANE RUNNER)
-// ============================================================================
-class LaneRunnerGame {
-  constructor() {
-    this.words = shuffleArray(WordStore.getWords());
-    this.score = 0;
-    this.currentLane = 1; // 0: Sol, 1: Orta, 2: Sağ
-    this.targetWord = null;
-    this.laneOptions = [];
-    this.distance = 0;
-    this.animId = null;
-    this.isOver = false;
-  }
-
-  init() {
-    setGameHeader('Şerit Koşusu', 'Karakteri (Sol/Sağ ok tuşlarıyla veya butonlarla) doğru İngilizce kelimenin olduğu şeride geçir!');
-    this.nextRound();
-  }
-
-  nextRound() {
-    if (this.isOver) return;
-    const currentWord = this.words[Math.floor(Math.random() * this.words.length)];
-    const otherWords = this.words.filter(w => w.id !== currentWord.id);
-    const shuffledOthers = shuffleArray(otherWords).slice(0, 2);
-
-    const correctLane = Math.floor(Math.random() * 3);
-    const options = [];
-    let otherIdx = 0;
-    for (let i = 0; i < 3; i++) {
-      if (i === correctLane) {
-        options.push({ text: currentWord.en, isCorrect: true, word: currentWord });
-      } else {
-        options.push({ text: shuffledOthers[otherIdx].en, isCorrect: false, word: shuffledOthers[otherIdx] });
-        otherIdx++;
+  // ==========================================================================
+  // OYUN 2: ŞERİT KOŞUSU
+  // ==========================================================================
+  class LaneRunnerGame extends BaseMiniGame {
+    constructor(ctx, words) {
+      super();
+      this.ctx = ctx;
+      this.words = words;
+      this.deck = createDeck(words);
+      this.lane = 1;
+      this.laneWords = [];
+      this.target = null;
+      this.speed = 1.0;
+      this.running = false;
+      HUD.setTitle('Şerit Koşusu', 'Doğru İngilizce kelimenin şeridine geç!');
+      HUD.setLives(this.ctx.lives);
+      this.nextRound();
+    }
+    nextRound() {
+      if (this.ctx.isOver) return;
+      const t = this.deck.next(); if (!t) { this.endGame('Kelimeler Bitti'); return; }
+      this.target = t;
+      const distractors = pickDistractors(t, this.words, 2);
+      if (distractors.length < 2) { this.endGame('Yeterli Kelime Yok'); return; }
+      const correctLane = Math.floor(Math.random() * 3);
+      const opts = [];
+      let di = 0;
+      for (let i = 0; i < 3; i++) {
+        if (i === correctLane) opts.push({ word: t, correct: true });
+        else opts.push({ word: distractors[di++], correct: false });
       }
+      this.laneWords = opts;
+      this.correctLane = correctLane;
+      this.progress = 0;
+      this.running = true;
+      this.render();
+      this.startLoop();
     }
-
-    this.targetWord = currentWord;
-    this.laneOptions = options;
-    this.distance = 0;
-    this.render();
-    this.startRunning();
-  }
-
-  render() {
-    const stage = document.getElementById('game-stage');
-    if (!stage) return;
-    updateGameScore(this.score);
-
-    stage.innerHTML = `
-      <div class="w-full max-w-lg flex flex-col items-center">
-        <!-- Hedef Türkçe Kelime -->
-        <div class="w-full p-3 rounded-xl bg-slate-800/90 border border-slate-700 text-center mb-3">
-          <span class="text-xs text-blue-400 font-semibold uppercase">Hedef Türkçe Kelime</span>
-          <h3 class="text-2xl font-bold text-white font-display">${this.targetWord.tr}</h3>
-        </div>
-
-        <!-- 3 Şeritli Pist Sahnesi -->
-        <div class="relative w-full h-80 bg-slate-950 rounded-2xl border-2 border-slate-700 overflow-hidden flex" id="track-container">
-          <!-- 3 Şerit Ayracı -->
-          <div class="flex-1 border-r border-dashed border-slate-700 relative flex flex-col justify-between items-center p-2 lane-col" data-lane="0">
-            <div class="px-2 py-1 rounded bg-slate-800/90 border border-slate-600 text-xs font-bold text-white lane-target" id="target-lane-0">
-              ${this.laneOptions[0].text}
-            </div>
+    render() {
+      const stage = this.stage; if (!stage) return;
+      HUD.setScore(this.ctx.score);
+      HUD.setLives(this.ctx.lives);
+      stage.innerHTML = `
+        <div class="w-full max-w-lg flex flex-col items-center">
+          <div class="w-full p-2.5 rounded-xl bg-slate-800/90 border border-slate-700 text-center mb-3">
+            <span class="text-[11px] text-blue-400 font-semibold uppercase">Hedef Türkçe Anlam</span>
+            <h3 class="text-xl font-bold text-white font-display">${escapeHtml(this.target.tr)}</h3>
           </div>
-          <div class="flex-1 border-r border-dashed border-slate-700 relative flex flex-col justify-between items-center p-2 lane-col" data-lane="1">
-            <div class="px-2 py-1 rounded bg-slate-800/90 border border-slate-600 text-xs font-bold text-white lane-target" id="target-lane-1">
-              ${this.laneOptions[1].text}
-            </div>
+          <div class="games-room-track" id="lane-track">
+            ${this.laneWords.map((o, i) => `
+              <div class="games-room-lane" data-lane="${i}">
+                <div class="games-room-lane-label" data-lane-label="${i}">${escapeHtml(formatShortMeaning(o.word.en, 22))}</div>
+              </div>`).join('')}
+            <div class="games-room-runner" id="lane-runner"><i data-lucide="zap" class="w-5 h-5"></i></div>
           </div>
-          <div class="flex-1 relative flex flex-col justify-between items-center p-2 lane-col" data-lane="2">
-            <div class="px-2 py-1 rounded bg-slate-800/90 border border-slate-600 text-xs font-bold text-white lane-target" id="target-lane-2">
-              ${this.laneOptions[2].text}
-            </div>
+          <div class="w-full grid grid-cols-3 gap-2 mt-4">
+            <button class="games-room-steer" data-move="-1">&#8592; Sol</button>
+            <button class="games-room-steer" data-move="1">Sağ &#8594;</button>
+            <button class="games-room-steer games-room-steer-jump" id="lane-jump">&#8681; Atla</button>
           </div>
-
-          <!-- Koşucu Karakter -->
-          <div id="lane-runner-character" class="absolute bottom-4 w-12 h-12 rounded-full bg-blue-500 border-2 border-white flex items-center justify-center text-white shadow-lg shadow-blue-500/50 transition-all duration-150" style="left: calc(${this.currentLane * 33.33}% + 16.66% - 24px);">
-            <i data-lucide="zap" class="w-6 h-6 fill-white"></i>
-          </div>
-        </div>
-
-        <!-- Yön Kontrol Butonları -->
-        <div class="w-full flex justify-between items-center gap-4 mt-4">
-          <button id="lane-left-btn" class="flex-1 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex items-center justify-center gap-2 border border-slate-700 transition">
-            <i data-lucide="arrow-left" class="w-5 h-5"></i> Sol Şerit
-          </button>
-          <button id="lane-right-btn" class="flex-1 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex items-center justify-center gap-2 border border-slate-700 transition">
-            Sağ Şerit <i data-lucide="arrow-right" class="w-5 h-5"></i>
-          </button>
-        </div>
-      </div>
-    `;
-
-    if (window.lucide) window.lucide.createIcons();
-    this.bindEvents();
-  }
-
-  startRunning() {
-    if (this.animId) cancelAnimationFrame(this.animId);
-    const targets = [
-      document.getElementById('target-lane-0'),
-      document.getElementById('target-lane-1'),
-      document.getElementById('target-lane-2')
-    ];
-
-    const run = () => {
-      this.distance += 1.5;
-      targets.forEach(t => {
-        if (t) t.style.transform = `translateY(${this.distance}px)`;
+        </div>`;
+      this.afterRender();
+      this.positionRunner();
+      this.bind();
+    }
+    positionRunner() {
+      const r = document.getElementById('lane-runner');
+      if (r) r.style.left = `calc(${this.lane * 33.333}% + 16.666% - 1.25rem)`;
+      this.stage.querySelectorAll('[data-lane-label]').forEach(el => {
+        el.classList.toggle('games-room-lane-active', Number(el.getAttribute('data-lane-label')) === this.lane);
       });
-
-      if (this.distance >= 230) {
-        // Çarpışma anı
-        const selected = this.laneOptions[this.currentLane];
-        if (selected && selected.isCorrect) {
-          AudioService.playSfx('correct');
-          WordStore.recordSuccess(this.targetWord.id);
-          this.score += 20;
-          showToast('Harika! Doğru şerit.', 'success');
-        } else {
-          AudioService.playSfx('wrong');
-          WordStore.recordMistake(this.targetWord.id);
-          showToast(`Yanlış şerit! Doğru kelime: ${this.targetWord.en}`, 'error');
-        }
-
-        setTimeout(() => {
-          this.nextRound();
-        }, 500);
-        return;
-      }
-
-      this.animId = requestAnimationFrame(run);
-    };
-
-    this.animId = requestAnimationFrame(run);
-  }
-
-  bindEvents() {
-    const charEl = document.getElementById('lane-runner-character');
-    const leftBtn = document.getElementById('lane-left-btn');
-    const rightBtn = document.getElementById('lane-right-btn');
-
-    const updateCharPos = () => {
-      if (charEl) {
-        charEl.style.left = `calc(${this.currentLane * 33.33}% + 16.66% - 24px)`;
-        AudioService.playSfx('click');
-      }
-    };
-
-    const moveLeft = () => {
-      if (this.currentLane > 0) {
-        this.currentLane--;
-        updateCharPos();
-      }
-    };
-
-    const moveRight = () => {
-      if (this.currentLane < 2) {
-        this.currentLane++;
-        updateCharPos();
-      }
-    };
-
-    if (leftBtn) leftBtn.addEventListener('click', moveLeft);
-    if (rightBtn) rightBtn.addEventListener('click', moveRight);
-
-    this.keyHandler = (e) => {
-      if (e.key === 'ArrowLeft') moveLeft();
-      else if (e.key === 'ArrowRight') moveRight();
-    };
-    window.addEventListener('keydown', this.keyHandler);
-  }
-
-  destroy() {
-    if (this.animId) cancelAnimationFrame(this.animId);
-    if (this.keyHandler) window.removeEventListener('keydown', this.keyHandler);
-  }
-}
-
-// ============================================================================
-// EKSTRA MİNİ OYUN 3: KELİME YARIŞI (WORD RACE)
-// ============================================================================
-class WordRaceGame {
-  constructor() {
-    this.words = shuffleArray(WordStore.getWords());
-    this.score = 0;
-    this.carLane = 1; // 0, 1, 2 (Tüneller)
-    this.roundWord = null;
-    this.tunnels = [];
-    this.progress = 0;
-    this.animId = null;
-  }
-
-  init() {
-    setGameHeader('Kelime Yarışı', 'Arabayı doğru kelime tüneline sürerek puanları topla!');
-    this.newRace();
-  }
-
-  newRace() {
-    const currentWord = this.words[Math.floor(Math.random() * this.words.length)];
-    const otherWords = this.words.filter(w => w.id !== currentWord.id);
-    const shuffledOthers = shuffleArray(otherWords).slice(0, 2);
-
-    const correctTunnel = Math.floor(Math.random() * 3);
-    const tunnelList = [];
-    let otherIdx = 0;
-    for (let i = 0; i < 3; i++) {
-      if (i === correctTunnel) {
-        tunnelList.push({ text: currentWord.en, isCorrect: true, word: currentWord });
-      } else {
-        tunnelList.push({ text: shuffledOthers[otherIdx].en, isCorrect: false, word: shuffledOthers[otherIdx] });
-        otherIdx++;
+    }
+    bind() {
+      this.stage.querySelectorAll('.games-room-steer[data-move]').forEach(b =>
+        b.addEventListener('click', () => this.move(Number(b.getAttribute('data-move')))));
+      const jump = document.getElementById('lane-jump');
+      if (jump) jump.addEventListener('click', () => this.move(0, true));
+      this.stage.querySelectorAll('[data-lane]').forEach(l =>
+        l.addEventListener('click', () => { this.lane = Number(l.getAttribute('data-lane')); this.positionRunner(); }));
+      if (!this.stageKeyHandler) {
+        this.onStageKeydown(e => {
+          if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') { e.preventDefault(); this.move(-1); }
+          else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { e.preventDefault(); this.move(1); }
+          else if (e.key === 'ArrowDown' || e.key === ' ') { e.preventDefault(); this.move(0, true); }
+        });
       }
     }
-
-    this.roundWord = currentWord;
-    this.tunnels = tunnelList;
-    this.progress = 0;
-    this.render();
-    this.startDriving();
+    move(delta, jump) {
+      if (!this.running) return;
+      if (delta !== 0) this.lane = Math.min(2, Math.max(0, this.lane + delta));
+      if (typeof AudioService !== 'undefined') AudioService.playSfx('click');
+      this.positionRunner();
+      if (jump) this.progress = Math.max(this.progress, 200);
+    }
+    startLoop() {
+      if (this.rafId) cancelAnimationFrame(this.rafId);
+      const track = document.getElementById('lane-track');
+      const h = track ? track.clientHeight : 260;
+      const labels = Array.from({ length: 3 }).map((_, i) => document.getElementById(`lane-runner`) && this.stage.querySelector(`[data-lane-label="${i}"]`));
+      const tick = () => {
+        if (!this.running || this.ctx.isOver) return;
+        this.progress += this.speed * 2.2;
+        const ratio = Math.min(1, this.progress / h);
+        this.stage.querySelectorAll('[data-lane-label]').forEach(el => {
+          el.style.transform = `translateY(${ratio * (h * 0.62)}px)`;
+        });
+        if (this.progress >= h) { this.resolve(); return; }
+        this.rafId = trackRaf(requestAnimationFrame(tick));
+      };
+      this.rafId = trackRaf(requestAnimationFrame(tick));
+    }
+    resolve() {
+      this.running = false;
+      const chosen = this.laneWords[this.lane];
+      const track = document.getElementById('lane-track');
+      if (chosen && chosen.correct) {
+        this.ctx.combo++; this.ctx.maxCombo = Math.max(this.ctx.maxCombo, this.ctx.combo);
+        this.ctx.score += 10 * Math.min(5, this.ctx.combo);
+        this.ctx.stats.correct++;
+        this.speed = Math.min(3.2, this.speed + 0.18);
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('correct');
+        if (track) track.classList.add('games-room-flash-green');
+        showToast(`Doğru! +${10 * Math.min(5, this.ctx.combo)} (Combo x${Math.min(5, this.ctx.combo)})`, 'success');
+      } else {
+        this.ctx.combo = 0;
+        this.ctx.lives--;
+        this.ctx.stats.wrong++;
+        this.ctx.miss(this.target);
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('wrong');
+        if (track) track.classList.add('games-room-shake');
+        showToast(`Yanlış şerit! Doğru kelime: ${this.target.en}`, 'error');
+      }
+      HUD.setScore(this.ctx.score);
+      HUD.setLives(this.ctx.lives);
+      if (this.ctx.lives <= 0) { this.setTimeoutTracked(() => this.endGame('Canlar Bitti'), 700); return; }
+      this.setTimeoutTracked(() => this.nextRound(), 700);
+    }
+    endGame(title) {
+      this.ctx.isOver = true;
+      this.ctx.stats.maxCombo = this.ctx.maxCombo;
+      renderGameOver(this.ctx, { title: title, subtitle: 'Şerit Koşusu tamamlandı', score: this.ctx.score, missed: this.ctx.missed });
+    }
   }
 
-  render() {
-    const stage = document.getElementById('game-stage');
-    if (!stage) return;
-    updateGameScore(this.score);
+  // ==========================================================================
+  // OYUN 3: KELİME YARIŞI
+  // ==========================================================================
+  class WordRaceGame extends BaseMiniGame {
+    constructor(ctx, words) {
+      super();
+      this.ctx = ctx;
+      this.words = words;
+      this.deck = createDeck(words);
+      this.lane = 1;
+      this.tunnels = [];
+      this.target = null;
+      this.speed = 1.0;
+      this.running = false;
+      HUD.setTitle('Kelime Yarışı', 'Doğru kelime tüneline sür!');
+      HUD.setLives(this.ctx.lives);
+      this.newRace();
+    }
+    newRace() {
+      if (this.ctx.isOver) return;
+      const t = this.deck.next(); if (!t) { this.endGame('Kelimeler Bitti'); return; }
+      this.target = t;
+      const distractors = pickDistractors(t, this.words, 2);
+      if (distractors.length < 2) { this.endGame('Yeterli Kelime Yok'); return; }
+      const correct = Math.floor(Math.random() * 3);
+      const list = []; let di = 0;
+      for (let i = 0; i < 3; i++) list.push(i === correct ? { word: t, correct: true } : { word: distractors[di++], correct: false });
+      this.tunnels = list;
+      this.progress = 0;
+      this.running = true;
+      this.render();
+      this.startDrive();
+    }
+    render() {
+      const stage = this.stage; if (!stage) return;
+      HUD.setScore(this.ctx.score);
+      HUD.setLives(this.ctx.lives);
+      stage.innerHTML = `
+        <div class="w-full max-w-lg flex flex-col items-center">
+          <div class="w-full p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-center mb-3">
+            <span class="text-[11px] text-amber-400 font-semibold uppercase">Aranan Türkçe Anlam</span>
+            <h3 class="text-xl font-bold text-white font-display">${escapeHtml(this.target.tr)}</h3>
+          </div>
+          <div class="games-room-highway" id="race-highway">
+            <div class="games-room-tunnels">
+              ${this.tunnels.map((t, i) => `
+                <div class="games-room-tunnel" data-tunnel="${i}">
+                  <span class="games-room-tunnel-label">TÜNEL ${i + 1}</span>
+                  <p class="games-room-tunnel-word">${escapeHtml(formatShortMeaning(t.word.en, 20))}</p>
+                </div>`).join('')}
+            </div>
+            <div class="games-room-car" id="race-car"><i data-lucide="car" class="w-5 h-5"></i></div>
+          </div>
+          <div class="w-full grid grid-cols-3 gap-2 mt-4">
+            <button class="games-room-steer" data-steer="0">&#8592; Tünel 1</button>
+            <button class="games-room-steer" data-steer="1">Tünel 2</button>
+            <button class="games-room-steer" data-steer="2">Tünel 3 &#8594;</button>
+          </div>
+        </div>`;
+      this.afterRender();
+      this.positionCar();
+      this.bind();
+    }
+    positionCar() {
+      const c = document.getElementById('race-car');
+      if (c) c.style.left = `calc(${this.lane * 33.333}% + 16.666% - 1.25rem)`;
+    }
+    bind() {
+      this.stage.querySelectorAll('.games-room-steer[data-steer]').forEach(b =>
+        b.addEventListener('click', () => { this.lane = Number(b.getAttribute('data-steer')); this.positionCar(); }));
+      this.stage.querySelectorAll('[data-tunnel]').forEach(t =>
+        t.addEventListener('click', () => { this.lane = Number(t.getAttribute('data-tunnel')); this.positionCar(); }));
+      if (!this.stageKeyHandler) {
+        this.onStageKeydown(e => {
+          if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') { e.preventDefault(); this.lane = Math.max(0, this.lane - 1); this.positionCar(); }
+          else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') { e.preventDefault(); this.lane = Math.min(2, this.lane + 1); this.positionCar(); }
+        });
+      }
+    }
+    startDrive() {
+      if (this.rafId) cancelAnimationFrame(this.rafId);
+      const hw = document.getElementById('race-highway');
+      const car = document.getElementById('race-car');
+      const h = hw ? hw.clientHeight : 260;
+      const tick = () => {
+        if (!this.running || this.ctx.isOver) return;
+        this.progress += this.speed * 2.4;
+        if (car) car.style.bottom = `${Math.min(this.progress, h - 80)}px`;
+        if (this.progress >= h - 80) { this.resolve(); return; }
+        this.rafId = trackRaf(requestAnimationFrame(tick));
+      };
+      this.rafId = trackRaf(requestAnimationFrame(tick));
+    }
+    resolve() {
+      this.running = false;
+      const chosen = this.tunnels[this.lane];
+      const hw = document.getElementById('race-highway');
+      if (chosen && chosen.correct) {
+        this.ctx.combo++; this.ctx.maxCombo = Math.max(this.ctx.maxCombo, this.ctx.combo);
+        this.ctx.score += 15 * Math.min(5, this.ctx.combo);
+        this.ctx.stats.correct++;
+        this.speed = Math.min(3.4, this.speed + 0.16);
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('correct');
+        if (hw) hw.classList.add('games-room-flash-green');
+        showToast('Turbo! Doğru tünel.', 'success');
+      } else {
+        this.ctx.combo = 0;
+        this.ctx.lives--;
+        this.ctx.stats.wrong++;
+        this.ctx.miss(this.target);
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('wrong');
+        if (hw) hw.classList.add('games-room-shake');
+        showToast(`Kaza! Doğru cevap: ${this.target.en}`, 'error');
+      }
+      HUD.setScore(this.ctx.score);
+      HUD.setLives(this.ctx.lives);
+      if (this.ctx.lives <= 0) { this.setTimeoutTracked(() => this.endGame('Canlar Bitti'), 700); return; }
+      this.setTimeoutTracked(() => this.newRace(), 700);
+    }
+    endGame(title) {
+      this.ctx.isOver = true;
+      this.ctx.stats.maxCombo = this.ctx.maxCombo;
+      renderGameOver(this.ctx, { title: title, subtitle: 'Kelime Yarışı tamamlandı', score: this.ctx.score, missed: this.ctx.missed });
+    }
+  }
 
-    stage.innerHTML = `
-      <div class="w-full max-w-lg flex flex-col items-center">
-        <div class="w-full p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-center mb-3">
-          <span class="text-xs text-amber-400 font-semibold uppercase">Tünel Hedefi (Türkçe Karşılığı)</span>
-          <h3 class="text-2xl font-bold text-white font-display">${this.roundWord.tr}</h3>
-        </div>
-
-        <!-- Otoyol ve Tüneller -->
-        <div class="relative w-full h-80 bg-slate-950 rounded-2xl border-2 border-amber-500/30 overflow-hidden flex flex-col justify-between" id="highway-box">
-          <!-- Üst Tüneller -->
-          <div class="flex w-full border-b border-slate-700 bg-slate-900/80">
-            ${this.tunnels.map((t, idx) => `
-              <div class="flex-1 p-3 text-center border-r last:border-0 border-slate-700 font-bold text-xs text-amber-300">
-                <span>TÜNEL ${idx + 1}</span>
-                <p class="text-sm font-extrabold text-white mt-1">${t.text}</p>
+  // ==========================================================================
+  // OYUN 4: KELİME BOMBASI
+  // ==========================================================================
+  class WordBombGame extends BaseMiniGame {
+    constructor(ctx, words) {
+      super();
+      this.ctx = ctx;
+      this.words = words.filter(isAlphaWord);
+      this.deck = createDeck(this.words);
+      HUD.setTitle('Kelime Bombası', 'Fitil bitmeden harfleri doğru diz!');
+      HUD.setLives(this.ctx.lives);
+      this.newBomb();
+    }
+    newBomb() {
+      if (this.ctx.isOver) return;
+      const w = this.deck.next(); if (!w) { this.endGame('Kelimeler Bitti'); return; }
+      this.target = w;
+      this.letters = enUp(w.en).split('');
+      this.scrambled = shuffle(this.letters.map((ch, i) => ({ ch: ch, idx: i })));
+      this.selected = [];       // {ch, srcIdx}
+      this.duration = Math.min(18, Math.max(12, this.letters.length * 2));
+      this.remaining = this.duration;
+      this.finished = false;
+      this.render();
+      this.startFuse();
+    }
+    render() {
+      const stage = this.stage; if (!stage) return;
+      HUD.setScore(this.ctx.score);
+      HUD.setLives(this.ctx.lives);
+      const pct = Math.max(0, (this.remaining / this.duration) * 100);
+      stage.innerHTML = `
+        <div class="w-full max-w-lg flex flex-col items-center">
+          <div class="flex items-center gap-3 mb-3 w-full">
+            <div class="w-12 h-12 rounded-full bg-rose-600 flex items-center justify-center text-white shadow-lg shadow-rose-600/40 ${this.remaining < this.duration * 0.35 ? 'games-room-bomb-pulse' : ''}">
+              <i data-lucide="bomb" class="w-7 h-7"></i>
+            </div>
+            <div class="flex-grow">
+              <span class="text-[11px] text-rose-400 font-bold block mb-1">FİTİL (${Math.ceil(this.remaining)}s)</span>
+              <div class="w-full h-3 bg-slate-800 rounded-full overflow-hidden border border-rose-500/30">
+                <div id="fuse-bar" class="h-full bg-gradient-to-r from-amber-500 to-rose-500 transition-all duration-200" style="width: ${pct}%;"></div>
               </div>
+            </div>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-800 border border-slate-700 text-center mb-4 w-full">
+            <span class="text-[11px] text-slate-400 font-medium">İmha İpucu (Türkçe)</span>
+            <h3 class="text-xl font-extrabold text-white font-display">${escapeHtml(this.target.tr)}</h3>
+          </div>
+          <div class="flex gap-2 mb-4 min-h-[48px] p-2 bg-slate-900 rounded-xl border border-slate-800 w-full justify-center flex-wrap">
+            ${this.letters.map((_, i) => {
+              const sel = this.selected[i];
+              return sel
+                ? `<div class="games-room-slot games-room-slot-filled">${escapeHtml(sel.ch)}</div>`
+                : `<div class="games-room-slot games-room-slot-empty">_</div>`;
+            }).join('')}
+          </div>
+          <div class="flex flex-wrap gap-2 justify-center mb-4">
+            ${this.scrambled.map((s, i) => `
+              <button class="games-room-letter ${s.used ? 'games-room-letter-used' : ''}" data-slot="${i}" ${s.used ? 'disabled' : ''}>${escapeHtml(s.ch)}</button>
             `).join('')}
           </div>
-
-          <!-- Araba (Kullanıcı Aracı) -->
-          <div class="relative w-full h-44 flex items-end pb-3 px-4">
-            <div id="race-car" class="absolute w-12 h-16 rounded-xl bg-gradient-to-t from-amber-600 to-amber-400 border border-amber-200 shadow-xl shadow-amber-500/50 flex flex-col items-center justify-between p-1 transition-all duration-150" style="left: calc(${this.carLane * 33.33}% + 16.66% - 24px); bottom: ${this.progress}px;">
-              <div class="w-6 h-3 bg-slate-900 rounded-sm"></div>
-              <span class="text-[9px] font-bold text-slate-900 font-mono">CAR</span>
-              <div class="w-full flex justify-between px-0.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-amber-200 animate-ping"></span>
-                <span class="w-1.5 h-1.5 rounded-full bg-amber-200 animate-ping"></span>
-              </div>
-            </div>
+          <div class="flex gap-3">
+            <button id="bomb-undo" class="games-room-mini-btn"><i data-lucide="delete" class="w-3.5 h-3.5"></i> Geri Al</button>
+            <button id="bomb-clear" class="games-room-mini-btn"><i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Temizle</button>
           </div>
-        </div>
-
-        <!-- Direksiyon / Şerit Butonları -->
-        <div class="w-full grid grid-cols-3 gap-2 mt-4">
-          <button class="py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 car-steer-btn" data-steer="0">
-            &larr; Tünel 1
-          </button>
-          <button class="py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 car-steer-btn" data-steer="1">
-            Tünel 2 (Orta)
-          </button>
-          <button class="py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 car-steer-btn" data-steer="2">
-            Tünel 3 &rarr;
-          </button>
-        </div>
-      </div>
-    `;
-
-    this.bindEvents();
-  }
-
-  startDriving() {
-    if (this.animId) cancelAnimationFrame(this.animId);
-    const car = document.getElementById('race-car');
-
-    const drive = () => {
-      this.progress += 1.8;
-      if (car) car.style.bottom = `${this.progress}px`;
-
-      if (this.progress >= 160) {
-        // Tünele girdi
-        const chosen = this.tunnels[this.carLane];
-        if (chosen && chosen.isCorrect) {
-          AudioService.playSfx('correct');
-          WordStore.recordSuccess(this.roundWord.id);
-          this.score += 20;
-          showToast('Doğru tünelden geçtiniz! +20 Puan', 'success');
-        } else {
-          AudioService.playSfx('wrong');
-          WordStore.recordMistake(this.roundWord.id);
-          showToast(`Yanlış tünel! Doğru cevap: ${this.roundWord.en}`, 'error');
-        }
-
-        setTimeout(() => {
-          this.newRace();
-        }, 500);
-        return;
+        </div>`;
+      this.afterRender();
+      this.bind();
+    }
+    bind() {
+      this.stage.querySelectorAll('.games-room-letter[data-slot]').forEach(b =>
+        b.addEventListener('click', () => this.pick(Number(b.getAttribute('data-slot')))));
+      const undo = document.getElementById('bomb-undo'); if (undo) undo.addEventListener('click', () => this.undo());
+      const clear = document.getElementById('bomb-clear'); if (clear) clear.addEventListener('click', () => this.clear());
+      if (!this.stageKeyHandler) {
+        this.onStageKeydown(e => {
+          if (e.key === 'Backspace') { e.preventDefault(); this.undo(); }
+          else if (/^[a-zA-Z]$/.test(e.key)) this.pickLetter(enUp(e.key));
+        });
       }
-
-      this.animId = requestAnimationFrame(drive);
-    };
-
-    this.animId = requestAnimationFrame(drive);
-  }
-
-  bindEvents() {
-    const car = document.getElementById('race-car');
-    const buttons = document.querySelectorAll('.car-steer-btn');
-
-    buttons.forEach(b => {
-      b.addEventListener('click', () => {
-        this.carLane = parseInt(b.getAttribute('data-steer'), 10);
-        if (car) car.style.left = `calc(${this.carLane * 33.33}% + 16.66% - 24px)`;
-        AudioService.playSfx('click');
-      });
-    });
-
-    this.keyHandler = (e) => {
-      if (e.key === 'ArrowLeft' && this.carLane > 0) {
-        this.carLane--;
-        if (car) car.style.left = `calc(${this.carLane * 33.33}% + 16.66% - 24px)`;
-      } else if (e.key === 'ArrowRight' && this.carLane < 2) {
-        this.carLane++;
-        if (car) car.style.left = `calc(${this.carLane * 33.33}% + 16.66% - 24px)`;
-      }
-    };
-    window.addEventListener('keydown', this.keyHandler);
-  }
-
-  destroy() {
-    if (this.animId) cancelAnimationFrame(this.animId);
-    if (this.keyHandler) window.removeEventListener('keydown', this.keyHandler);
-  }
-}
-
-// ============================================================================
-// EKSTRA MİNİ OYUN 4: KELİME BOMBASI (WORD BOMB DEFUSAL)
-// ============================================================================
-class WordBombGame {
-  constructor() {
-    this.words = shuffleArray(WordStore.getWords());
-    this.score = 0;
-    this.roundWord = null;
-    this.fuseTime = 100;
-    this.timer = null;
-    this.scrambledLetters = [];
-    this.selectedLetters = [];
-  }
-
-  init() {
-    setGameHeader('Kelime Bombası', 'Fitil tükenmeden önce harfleri doğru sıraya dizerek bombayı imha et!');
-    this.newBomb();
-  }
-
-  newBomb() {
-    this.roundWord = this.words[Math.floor(Math.random() * this.words.length)];
-    this.fuseTime = 100;
-    this.selectedLetters = [];
-    this.scrambledLetters = shuffleArray(this.roundWord.en.toUpperCase().split(''));
-    this.render();
-    this.startFuse();
-  }
-
-  startFuse() {
-    if (this.timer) clearInterval(this.timer);
-    const fuseBar = document.getElementById('fuse-bar');
-
-    this.timer = setInterval(() => {
-      this.fuseTime -= 2;
-      if (fuseBar) fuseBar.style.width = `${Math.max(0, this.fuseTime)}%`;
-
-      if (this.fuseTime <= 0) {
-        clearInterval(this.timer);
-        AudioService.playSfx('wrong');
-        WordStore.recordMistake(this.roundWord.id);
-        showToast(`BOMBA PATLADI! Kelime: ${this.roundWord.en}`, 'error');
-        setTimeout(() => this.newBomb(), 1200);
-      }
-    }, 200);
-  }
-
-  render() {
-    const stage = document.getElementById('game-stage');
-    if (!stage) return;
-    updateGameScore(this.score);
-
-    stage.innerHTML = `
-      <div class="w-full max-w-lg flex flex-col items-center">
-        <!-- Bomba İkonu & Fitil -->
-        <div class="flex items-center gap-3 mb-4">
-          <div class="w-14 h-14 rounded-full bg-rose-600 flex items-center justify-center text-white shadow-lg shadow-rose-600/40 animate-pulse">
-            <i data-lucide="bomb" class="w-8 h-8"></i>
-          </div>
-          <div class="flex-grow">
-            <span class="text-xs text-rose-400 font-bold block mb-1">FİTİL (ZAMAN BARI)</span>
-            <div class="w-48 sm:w-64 h-3 bg-slate-800 rounded-full overflow-hidden border border-rose-500/30">
-              <div id="fuse-bar" class="h-full bg-gradient-to-r from-amber-500 to-rose-500 transition-all duration-200" style="width: ${this.fuseTime}%;"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Türkçe Anlam -->
-        <div class="p-3 rounded-xl bg-slate-800 border border-slate-700 text-center mb-6 w-full">
-          <span class="text-xs text-slate-400 font-medium">İmha İpucu (Türkçe)</span>
-          <h3 class="text-2xl font-extrabold text-white font-display">${this.roundWord.tr}</h3>
-        </div>
-
-        <!-- Seçilen Harfler (İmha Kodu) -->
-        <div class="flex gap-2 mb-6 min-h-[48px] p-2 bg-slate-900 rounded-xl border border-slate-800 w-full justify-center">
-          ${this.selectedLetters.map((ch, idx) => `
-            <div class="w-10 h-10 rounded-lg bg-brand-600 text-white font-bold flex items-center justify-center text-lg animate-pop">
-              ${ch}
-            </div>
-          `).join('')}
-          ${Array(Math.max(0, this.roundWord.en.length - this.selectedLetters.length)).fill('').map(() => `
-            <div class="w-10 h-10 rounded-lg border border-dashed border-slate-700 flex items-center justify-center text-slate-600">_</div>
-          `).join('')}
-        </div>
-
-        <!-- Harf Seçim Havuzu -->
-        <div class="flex flex-wrap gap-2 justify-center mb-4">
-          ${this.scrambledLetters.map((ch, i) => `
-            <button class="w-11 h-11 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-extrabold text-base border border-slate-700 transition bomb-letter-btn" data-letter="${ch}" data-idx="${i}">
-              ${ch}
-            </button>
-          `).join('')}
-        </div>
-
-        <button id="reset-bomb-btn" class="text-xs text-slate-400 hover:text-white transition flex items-center gap-1">
-          <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Harfleri Temizle
-        </button>
-      </div>
-    `;
-
-    if (window.lucide) window.lucide.createIcons();
-    this.bindEvents();
-  }
-
-  bindEvents() {
-    const letterBtns = document.querySelectorAll('.bomb-letter-btn');
-    const resetBtn = document.getElementById('reset-bomb-btn');
-
-    letterBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        const letter = btn.getAttribute('data-letter');
-        btn.disabled = true;
-        btn.classList.add('opacity-30', 'pointer-events-none');
-        this.selectedLetters.push(letter);
-        AudioService.playSfx('click');
-
-        // Kontrol
-        if (this.selectedLetters.length === this.roundWord.en.length) {
-          const typed = this.selectedLetters.join('');
-          if (typed.toUpperCase() === this.roundWord.en.toUpperCase()) {
-            clearInterval(this.timer);
-            AudioService.playSfx('win');
-            WordStore.recordSuccess(this.roundWord.id);
-            this.score += 25;
-            showToast('BOMBA BAŞARIYLA İMHA EDİLDİ!', 'success');
-            setTimeout(() => this.newBomb(), 1000);
-          } else {
-            AudioService.playSfx('wrong');
-            WordStore.recordMistake(this.roundWord.id);
-            showToast('Yanlış sıralama! Tekrar deneyin.', 'warning');
-            setTimeout(() => {
-              this.selectedLetters = [];
-              this.render();
-            }, 600);
-          }
-        } else {
-          this.render();
-        }
-      });
-    });
-
-    if (resetBtn) {
-      resetBtn.addEventListener('click', () => {
-        this.selectedLetters = [];
-        this.render();
-      });
     }
-  }
-
-  destroy() {
-    if (this.timer) clearInterval(this.timer);
-  }
-}
-
-GAMES['wordle'] = WordleGame;
-GAMES['lane-runner'] = LaneRunnerGame;
-GAMES['word-race'] = WordRaceGame;
-GAMES['word-bomb'] = WordBombGame;
-
-
-// ============================================================================
-// EKSTRA MİNİ OYUN 5: KELİME PATLATMA (BUBBLE POP)
-// ============================================================================
-class WordPopGame {
-  constructor() {
-    const all = shuffleArray(WordStore.getWords());
-    this.selected = all.slice(0, Math.min(5, all.length));
-    this.bubbles = [];
-    this.firstBubble = null;
-    this.score = 0;
-  }
-
-  init() {
-    setGameHeader('Kelime Patlatma', 'İngilizce ve Türkçe kelime baloncuklarını birbiri ardına tıklayarak patlat!');
-    this.bubbles = [];
-    this.selected.forEach((w, idx) => {
-      this.bubbles.push({ id: `en_${idx}`, wordId: w.id, text: w.en, type: 'en', popped: false, color: 'from-blue-500 to-indigo-600' });
-      this.bubbles.push({ id: `tr_${idx}`, wordId: w.id, text: w.tr, type: 'tr', popped: false, color: 'from-purple-500 to-pink-600' });
-    });
-    this.bubbles = shuffleArray(this.bubbles);
-    this.render();
-  }
-
-  render() {
-    const stage = document.getElementById('game-stage');
-    if (!stage) return;
-    updateGameScore(this.score);
-
-    const activeBubbles = this.bubbles.filter(b => !b.popped);
-
-    if (activeBubbles.length === 0) {
-      AudioService.playSfx('win');
-      stage.innerHTML = `
-        <div class="text-center p-6 max-w-md">
-          <div class="w-16 h-16 rounded-2xl bg-purple-500/20 text-purple-400 mx-auto flex items-center justify-center mb-4">
-            <i data-lucide="sparkles" class="w-8 h-8"></i>
-          </div>
-          <h3 class="text-2xl font-bold font-display text-white mb-2">Tüm Balonlar Patlatıldı!</h3>
-          <p class="text-slate-300 text-sm mb-4">Skorunuz: <span class="text-purple-400 font-bold font-mono text-2xl">${this.score}</span></p>
-          <div class="flex items-center justify-center gap-3">
-            <button onclick="launchGame('word-pop')" class="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold text-sm transition">Tekrar Oyna</button>
-            <button onclick="closeGame()" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm transition border border-slate-700">Menüye Dön</button>
-          </div>
-        </div>
-      `;
-      if (window.lucide) window.lucide.createIcons();
-      return;
-    }
-
-    stage.innerHTML = `
-      <div class="w-full max-w-2xl flex flex-col items-center">
-        <p class="text-xs text-slate-400 mb-4">Eşleşen İngilizce ve Türkçe baloncukları seç:</p>
-        <div class="flex flex-wrap justify-center gap-4 p-4 min-h-[300px] items-center" id="bubbles-container">
-          ${this.bubbles.map(b => {
-            if (b.popped) return '';
-            const isSelected = this.firstBubble && this.firstBubble.id === b.id;
-            return `
-              <div class="bubble-node p-4 sm:p-5 rounded-full bg-gradient-to-br ${b.color} text-white font-bold text-sm sm:text-base shadow-lg cursor-pointer transform hover:scale-105 active:scale-95 transition-all duration-200 select-none flex items-center justify-center text-center max-w-[130px] sm:max-w-[150px] aspect-square ${isSelected ? 'ring-4 ring-white animate-pulse' : ''}" data-bubble-id="${b.id}">
-                <span>${b.text}</span>
-              </div>
-            `;
-          }).join('')}
-        </div>
-      </div>
-    `;
-
-    this.bindEvents();
-  }
-
-  bindEvents() {
-    const nodes = document.querySelectorAll('.bubble-node');
-    nodes.forEach(n => {
-      n.addEventListener('click', () => {
-        const id = n.getAttribute('data-bubble-id');
-        const bubble = this.bubbles.find(b => b.id === id);
-        if (!bubble || bubble.popped) return;
-
-        if (!this.firstBubble) {
-          this.firstBubble = bubble;
-          AudioService.playSfx('click');
-          this.render();
-        } else if (this.firstBubble.id === bubble.id) {
-          this.firstBubble = null;
-          this.render();
-        } else {
-          // İkinci tık
-          const isMatch = (this.firstBubble.wordId === bubble.wordId) && (this.firstBubble.type !== bubble.type);
-          if (isMatch) {
-            AudioService.playSfx('pop');
-            this.firstBubble.popped = true;
-            bubble.popped = true;
-            this.score += 20;
-            WordStore.recordSuccess(bubble.wordId);
-            this.firstBubble = null;
-            this.render();
-          } else {
-            AudioService.playSfx('wrong');
-            WordStore.recordMistake(bubble.wordId);
-            showToast('Eşleşmedi!', 'warning');
-            this.firstBubble = null;
-            this.render();
-          }
-        }
-      });
-    });
-  }
-
-  destroy() {}
-}
-
-// ============================================================================
-// EKSTRA MİNİ OYUN 6: KELİME SAVUNMASI (WORD DEFENSE)
-// ============================================================================
-class WordDefenseGame {
-  constructor() {
-    this.words = shuffleArray(WordStore.getWords());
-    this.score = 0;
-    this.baseHealth = 100;
-    this.activeTarget = null;
-    this.posX = 10;
-    this.animId = null;
-    this.options = [];
-  }
-
-  init() {
-    setGameHeader('Kelime Savunması', 'Soldan yaklaşan kelime hedeflerini, doğru anlamlarına hızla tıklayarak sınıra varmadan vur!');
-    this.nextWave();
-  }
-
-  nextWave() {
-    if (this.baseHealth <= 0) {
-      this.renderGameOver();
-      return;
-    }
-
-    const currentWord = this.words[Math.floor(Math.random() * this.words.length)];
-    const otherWords = this.words.filter(w => w.id !== currentWord.id);
-    this.activeTarget = currentWord;
-    this.posX = 10;
-
-    this.options = shuffleArray([
-      { text: currentWord.tr, isCorrect: true, word: currentWord },
-      ...shuffleArray(otherWords).slice(0, 3).map(w => ({ text: w.tr, isCorrect: false, word: w }))
-    ]);
-
-    this.render();
-    this.startAdvance();
-  }
-
-  render() {
-    const stage = document.getElementById('game-stage');
-    if (!stage) return;
-    updateGameScore(this.score);
-
-    stage.innerHTML = `
-      <div class="w-full max-w-xl flex flex-col items-center">
-        <!-- Can Barı -->
-        <div class="w-full flex items-center justify-between text-xs text-slate-400 mb-2 px-2">
-          <span>Kale Savunması</span>
-          <span class="text-emerald-400 font-bold">Kale Canı: ${this.baseHealth}%</span>
-        </div>
-        <div class="w-full h-2 bg-slate-800 rounded-full mb-4 overflow-hidden border border-slate-700">
-          <div class="h-full bg-emerald-500 transition-all duration-300" style="width: ${this.baseHealth}%"></div>
-        </div>
-
-        <!-- Savunma Sahnesi -->
-        <div class="relative w-full h-48 bg-slate-950 rounded-2xl border-2 border-slate-700 overflow-hidden mb-6 flex items-center" id="defense-arena">
-          <!-- Soldan İlerleyen Düşman Kelime -->
-          <div id="defense-enemy" class="absolute px-4 py-2 rounded-xl bg-red-600 text-white font-extrabold text-base shadow-lg shadow-red-600/50 flex items-center gap-2" style="left: ${this.posX}px;">
-            <i data-lucide="skull" class="w-4 h-4"></i>
-            <span>${this.activeTarget.en}</span>
-          </div>
-
-          <!-- Sağ Kale Sınırı -->
-          <div class="absolute right-0 top-0 bottom-0 w-8 bg-slate-800 border-l-2 border-emerald-500 flex flex-col justify-center items-center text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
-            <span>K</span><span>A</span><span>L</span><span>E</span>
-          </div>
-        </div>
-
-        <!-- Savunma Seçenekleri -->
-        <div class="w-full grid grid-cols-2 gap-3" id="defense-options-container">
-          ${this.options.map(opt => `
-            <button class="game-option-btn py-3 text-sm" data-correct="${opt.isCorrect}">
-              <span>${opt.text}</span>
-            </button>
-          `).join('')}
-        </div>
-      </div>
-    `;
-
-    if (window.lucide) window.lucide.createIcons();
-    this.bindEvents();
-  }
-
-  startAdvance() {
-    if (this.animId) cancelAnimationFrame(this.animId);
-    const enemy = document.getElementById('defense-enemy');
-    const arena = document.getElementById('defense-arena');
-
-    const tick = () => {
-      this.posX += 1.2;
-      if (enemy) enemy.style.left = `${this.posX}px`;
-
-      const maxLimit = (arena ? arena.clientWidth : 500) - 130;
-      if (this.posX >= maxLimit) {
-        // Kaleye vurdu
-        this.baseHealth -= 25;
-        AudioService.playSfx('wrong');
-        WordStore.recordMistake(this.activeTarget.id);
-        showToast('Kale hasar aldı! -25 Can', 'error');
-        setTimeout(() => this.nextWave(), 300);
-        return;
-      }
-
-      this.animId = requestAnimationFrame(tick);
-    };
-
-    this.animId = requestAnimationFrame(tick);
-  }
-
-  bindEvents() {
-    const buttons = document.querySelectorAll('#defense-options-container .game-option-btn');
-    buttons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (this.animId) cancelAnimationFrame(this.animId);
-        const isCorrect = btn.getAttribute('data-correct') === 'true';
-
-        if (isCorrect) {
-          AudioService.playSfx('pop');
-          this.score += 20;
-          WordStore.recordSuccess(this.activeTarget.id);
-          showToast('Düşman vuruldu! +20 Puan', 'success');
-        } else {
-          AudioService.playSfx('wrong');
-          this.baseHealth -= 15;
-          WordStore.recordMistake(this.activeTarget.id);
-          showToast('Iskaladın! Kale hasar gördü.', 'warning');
-        }
-
-        setTimeout(() => this.nextWave(), 300);
-      });
-    });
-  }
-
-  renderGameOver() {
-    if (this.animId) cancelAnimationFrame(this.animId);
-    const stage = document.getElementById('game-stage');
-    if (!stage) return;
-    stage.innerHTML = `
-      <div class="text-center p-6 max-w-md">
-        <div class="w-16 h-16 rounded-2xl bg-red-500/20 text-red-400 mx-auto flex items-center justify-center mb-4">
-          <i data-lucide="shield-x" class="w-8 h-8"></i>
-        </div>
-        <h3 class="text-2xl font-bold font-display text-white mb-2">Kale Düştü!</h3>
-        <p class="text-slate-300 text-sm mb-4">Savunma Puanınız: <span class="text-red-400 font-bold font-mono text-2xl">${this.score}</span></p>
-        <div class="flex items-center justify-center gap-3">
-          <button onclick="launchGame('word-defense')" class="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold text-sm transition">Tekrar Dene</button>
-          <button onclick="closeGame()" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm transition border border-slate-700">Menüye Dön</button>
-        </div>
-      </div>
-    `;
-    if (window.lucide) window.lucide.createIcons();
-  }
-
-  destroy() {
-    if (this.animId) cancelAnimationFrame(this.animId);
-  }
-}
-
-// ============================================================================
-// EKSTRA MİNİ OYUN 7: TELAFFUZLU HUNİ (WORD FUNNEL)
-// ============================================================================
-class WordFunnelGame {
-  constructor() {
-    this.words = shuffleArray(WordStore.getWords());
-    this.score = 0;
-    this.roundWord = null;
-    this.options = [];
-  }
-
-  init() {
-    setGameHeader('Telaffuzlu Huni', 'Sesi dinle, huniden süzülen doğru anlamı yakala!');
-    this.newFunnel();
-  }
-
-  newFunnel() {
-    this.roundWord = this.words[Math.floor(Math.random() * this.words.length)];
-    const otherWords = this.words.filter(w => w.id !== this.roundWord.id);
-    this.options = shuffleArray([
-      { text: this.roundWord.tr, isCorrect: true },
-      ...shuffleArray(otherWords).slice(0, 3).map(w => ({ text: w.tr, isCorrect: false }))
-    ]);
-
-    this.render();
-    // Otomatik telaffuz
-    setTimeout(() => {
-      AudioService.speak(this.roundWord.en);
-    }, 400);
-  }
-
-  render() {
-    const stage = document.getElementById('game-stage');
-    if (!stage) return;
-    updateGameScore(this.score);
-
-    stage.innerHTML = `
-      <div class="w-full max-w-lg flex flex-col items-center">
-        <!-- Huni Şeması -->
-        <div class="relative w-44 h-36 flex flex-col items-center justify-center mb-4">
-          <svg viewBox="0 0 100 80" class="w-full h-full stroke-cyan-400 stroke-2 fill-cyan-500/10">
-            <polygon points="5,5 95,5 60,50 60,75 40,75 40,50" />
-          </svg>
-          <button id="funnel-listen-btn" class="absolute p-3 rounded-full bg-cyan-500 text-slate-950 font-bold shadow-lg shadow-cyan-500/40 hover:scale-105 transition" title="Tekrar Dinle">
-            <i data-lucide="volume-2" class="w-6 h-6"></i>
-          </button>
-        </div>
-
-        <p class="text-xs text-slate-400 mb-6">Huniden telaffuz edilen kelimenin Türkçe karşılığı hangisidir?</p>
-
-        <!-- Huniden Çıkan Seçenekler -->
-        <div class="w-full grid grid-cols-1 sm:grid-cols-2 gap-3" id="funnel-options-container">
-          ${this.options.map(opt => `
-            <button class="game-option-btn py-3 text-sm" data-correct="${opt.isCorrect}">
-              <span>${opt.text}</span>
-            </button>
-          `).join('')}
-        </div>
-      </div>
-    `;
-
-    if (window.lucide) window.lucide.createIcons();
-    this.bindEvents();
-  }
-
-  bindEvents() {
-    const listenBtn = document.getElementById('funnel-listen-btn');
-    if (listenBtn) {
-      listenBtn.addEventListener('click', () => {
-        AudioService.speak(this.roundWord.en);
-      });
-    }
-
-    const buttons = document.querySelectorAll('#funnel-options-container .game-option-btn');
-    buttons.forEach(btn => {
-      btn.addEventListener('click', () => {
-        buttons.forEach(b => b.disabled = true);
-        const isCorrect = btn.getAttribute('data-correct') === 'true';
-
-        if (isCorrect) {
-          btn.classList.add('correct');
-          this.score += 20;
-          AudioService.playSfx('correct');
-          WordStore.recordSuccess(this.roundWord.id);
-        } else {
-          btn.classList.add('wrong');
-          AudioService.playSfx('wrong');
-          WordStore.recordMistake(this.roundWord.id);
-        }
-
-        setTimeout(() => this.newFunnel(), 1000);
-      });
-    });
-  }
-
-  destroy() {}
-}
-
-// ============================================================================
-// EKSTRA MİNİ OYUN 8: GÖLGE DİNLEME (SHADOW LISTENING - DICTATION)
-// ============================================================================
-class ShadowListeningGame {
-  constructor() {
-    this.words = shuffleArray(WordStore.getWords());
-    this.currentIndex = 0;
-    this.score = 0;
-  }
-
-  init() {
-    setGameHeader('Gölge Dinleme (Dikte)', 'İngilizce okunuşunu dinle ve duyduğun kelimeyi klavyeyle aynen yaz!');
-    this.render();
-  }
-
-  render() {
-    const stage = document.getElementById('game-stage');
-    if (!stage) return;
-    if (this.words.length === 0) return;
-
-    const currentWord = this.words[this.currentIndex];
-    updateGameScore(this.score);
-
-    stage.innerHTML = `
-      <div class="w-full max-w-lg flex flex-col items-center">
-        <!-- Dinleme Kartı -->
-        <div class="w-full bg-slate-800/80 border border-slate-700 rounded-2xl p-8 text-center shadow-2xl mb-6">
-          <span class="text-xs uppercase tracking-widest text-indigo-400 font-semibold mb-3 block">Telaffuzu Dinleyin</span>
-          <button id="shadow-listen-btn" class="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 to-brand-600 text-white flex items-center justify-center mx-auto shadow-xl shadow-indigo-500/40 hover:scale-105 active:scale-95 transition mb-3">
-            <i data-lucide="headphones" class="w-8 h-8"></i>
-          </button>
-          <span class="text-xs text-slate-400">Tekrar dinlemek için butona tıklayın</span>
-          <p class="text-xs text-indigo-300 mt-2">Türkçe İpucu: ${currentWord.tr}</p>
-        </div>
-
-        <!-- Yazma Girişi -->
-        <div class="w-full space-y-3">
-          <input type="text" id="shadow-input" placeholder="Duyduğun İngilizce kelimeyi buraya yaz..." class="w-full bg-slate-900 border-2 border-slate-700 rounded-xl p-3.5 text-center text-lg font-bold text-white focus:outline-none focus:border-indigo-500" autocomplete="off" autocapitalize="none">
-
-          <button id="shadow-submit-btn" class="w-full py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition flex items-center justify-center gap-2">
-            <i data-lucide="check" class="w-4 h-4"></i> Cevabı Gönder
-          </button>
-        </div>
-      </div>
-    `;
-
-    if (window.lucide) window.lucide.createIcons();
-    this.bindEvents(currentWord);
-
-    // Otomatik ilk çalma
-    setTimeout(() => {
-      AudioService.speak(currentWord.en);
-    }, 400);
-  }
-
-  bindEvents(currentWord) {
-    const listenBtn = document.getElementById('shadow-listen-btn');
-    const input = document.getElementById('shadow-input');
-    const submitBtn = document.getElementById('shadow-submit-btn');
-
-    if (listenBtn) {
-      listenBtn.addEventListener('click', () => {
-        AudioService.speak(currentWord.en);
-      });
-    }
-
-    const check = () => {
-      const typed = (input.value || '').trim().toLowerCase();
-      const target = currentWord.en.toLowerCase();
-
-      if (typed === target) {
-        AudioService.playSfx('correct');
-        this.score += 25;
-        WordStore.recordSuccess(currentWord.id);
-        showToast('Tebrikler! Dikteyi doğru tamamladın.', 'success');
-        setTimeout(() => {
-          this.advance();
-        }, 800);
-      } else {
-        AudioService.playSfx('wrong');
-        WordStore.recordMistake(currentWord.id);
-        showToast(`Hatalı yazım. Doğrusu: ${currentWord.en}`, 'error');
-        setTimeout(() => {
-          this.advance();
-        }, 1200);
-      }
-    };
-
-    if (submitBtn) submitBtn.addEventListener('click', check);
-    if (input) {
-      input.focus();
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') check();
-      });
-    }
-  }
-
-  advance() {
-    if (this.currentIndex < this.words.length - 1) {
-      this.currentIndex++;
+    pick(slot) {
+      if (this.finished) return;
+      const item = this.scrambled[slot];
+      if (!item || item.used) return;
+      item.used = true;
+      this.selected.push({ ch: item.ch, srcIdx: slot });
+      if (typeof AudioService !== 'undefined') AudioService.playSfx('click');
+      if (this.selected.length === this.letters.length) { this.check(); return; }
       this.render();
-    } else {
-      AudioService.playSfx('win');
-      this.renderComplete();
+    }
+    pickLetter(letter) {
+      const idx = this.scrambled.findIndex(s => !s.used && s.ch === letter);
+      if (idx > -1) this.pick(idx);
+    }
+    undo() {
+      if (this.finished || this.selected.length === 0) return;
+      const last = this.selected.pop();
+      if (last && last.srcIdx != null) this.scrambled[last.srcIdx].used = false;
+      this.render();
+    }
+    clear() {
+      if (this.finished) return;
+      this.selected.forEach(s => { if (s.srcIdx != null) this.scrambled[s.srcIdx].used = false; });
+      this.selected = [];
+      this.render();
+    }
+    check() {
+      const typed = this.selected.map(s => s.ch).join('');
+      const answer = this.letters.join('');
+      if (typed === answer) {
+        this.finished = true;
+        if (this.intervalId) { clearInterval(this.intervalId); this.intervalId = null; }
+        this.ctx.combo++; this.ctx.maxCombo = Math.max(this.ctx.maxCombo, this.ctx.combo);
+        this.ctx.score += 20 + Math.round(this.remaining * 2) + (Math.min(5, this.ctx.combo) * 5);
+        this.ctx.stats.correct++;
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('win');
+        showToast('BOMBA İMHA EDİLDİ!', 'success');
+        this.setTimeoutTracked(() => this.newBomb(), 900);
+      } else {
+        this.ctx.combo = 0;
+        this.ctx.stats.wrong++;
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('wrong');
+        showToast('Yanlış sıralama!', 'warning');
+        this.setTimeoutTracked(() => { if (!this.finished) this.clear(); }, 500);
+      }
+    }
+    startFuse() {
+      if (this.intervalId) clearInterval(this.intervalId);
+      const bar = document.getElementById('fuse-bar');
+      this.setIntervalTracked(() => {
+        if (this.finished || this.ctx.isOver) return;
+        this.remaining -= 0.2;
+        const pct = Math.max(0, (this.remaining / this.duration) * 100);
+        const b = document.getElementById('fuse-bar');
+        if (b) b.style.width = `${pct}%`;
+        const lbl = this.stage.querySelector('.text-rose-400');
+        if (lbl) lbl.textContent = `FİTİL (${Math.ceil(Math.max(0, this.remaining))}s)`;
+        if (this.remaining <= 0) {
+          clearInterval(this.intervalId); this.intervalId = null;
+          this.finished = true;
+          this.ctx.combo = 0;
+          this.ctx.lives--;
+          this.ctx.stats.wrong++;
+          this.ctx.miss(this.target);
+          if (typeof AudioService !== 'undefined') AudioService.playSfx('wrong');
+          showToast(`BOMBA PATLADI! Kelime: ${this.target.en}`, 'error');
+          HUD.setLives(this.ctx.lives);
+          if (this.ctx.lives <= 0) { this.setTimeoutTracked(() => this.endGame('Canlar Bitti'), 900); return; }
+          this.setTimeoutTracked(() => this.newBomb(), 1200);
+        }
+      }, 200);
+    }
+    endGame(title) {
+      this.ctx.isOver = true;
+      this.ctx.stats.maxCombo = this.ctx.maxCombo;
+      renderGameOver(this.ctx, { title: title, subtitle: 'Kelime Bombası tamamlandı', score: this.ctx.score, missed: this.ctx.missed });
     }
   }
 
-  renderComplete() {
+  // ==========================================================================
+  // OYUN 5: KELİME PATLATMA (BALONCUK)
+  // ==========================================================================
+  class WordPopGame extends BaseMiniGame {
+    constructor(ctx, words) {
+      super();
+      this.ctx = ctx;
+      this.words = words;
+      this.deck = createDeck(words);
+      this.firstSel = null;
+      this.locked = false;
+      HUD.setTitle('Kelime Patlatma', 'İngilizce ve Türkçe eşleri patlat!');
+      HUD.setLives(this.ctx.lives);
+      this.newWave();
+    }
+    newWave() {
+      if (this.ctx.isOver) return;
+      const picked = [];
+      const need = 4;
+      for (let i = 0; i < need; i++) { const w = this.deck.next(); if (w) picked.push(w); }
+      if (picked.length < 2) { this.endGame('Yeterli Kelime Yok'); return; }
+      this.pairs = picked;
+      this.bubbles = [];
+      picked.forEach((w, idx) => {
+        this.bubbles.push({ id: `en_${idx}`, word: w, text: formatShortMeaning(w.en, 18), type: 'en', popped: false });
+        this.bubbles.push({ id: `tr_${idx}`, word: w, text: formatShortMeaning(w.tr, 20), type: 'tr', popped: false });
+      });
+      this.bubbles = shuffle(this.bubbles);
+      this.firstSel = null;
+      this.locked = false;
+      this.render();
+    }
+    render() {
+      const stage = this.stage; if (!stage) return;
+      HUD.setScore(this.ctx.score);
+      HUD.setLives(this.ctx.lives);
+      const active = this.bubbles.filter(b => !b.popped);
+      if (active.length === 0) { this.setTimeoutTracked(() => this.newWave(), 500); return; }
+      stage.innerHTML = `
+        <div class="w-full max-w-2xl flex flex-col items-center">
+          <p class="text-xs text-slate-400 mb-3">Eşleşen İngilizce ve Türkçe baloncukları seç</p>
+          <div class="games-room-bubble-field" id="bubble-field">
+            ${this.bubbles.map(b => {
+              if (b.popped) return '';
+              const sel = this.firstSel && this.firstSel.id === b.id;
+              const size = Math.max(72, Math.min(112, 60 + b.text.length * 2.4));
+              return `<button class="games-room-bubble ${b.type === 'en' ? 'games-room-bubble-en' : 'games-room-bubble-tr'} ${sel ? 'games-room-bubble-sel' : ''}"
+                        data-bubble="${b.id}" style="width:${size}px;height:${size}px;font-size:clamp(10px,2.4vw,13px)">
+                        <span>${escapeHtml(b.text)}</span></button>`;
+            }).join('')}
+          </div>
+        </div>`;
+      this.afterRender();
+      this.bind();
+    }
+    bind() {
+      this.stage.querySelectorAll('.games-room-bubble').forEach(n =>
+        n.addEventListener('click', () => this.tap(n.getAttribute('data-bubble'))));
+    }
+    tap(id) {
+      if (this.locked) return;
+      const b = this.bubbles.find(x => x.id === id);
+      if (!b || b.popped) return;
+      if (!this.firstSel) {
+        this.firstSel = b;
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('click');
+        this.render();
+        return;
+      }
+      if (this.firstSel.id === b.id) { this.firstSel = null; this.render(); return; }
+      const match = this.firstSel.word.id === b.word.id && this.firstSel.type !== b.type;
+      if (match) {
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('pop');
+        this.firstSel.popped = true; b.popped = true;
+        this.ctx.combo++; this.ctx.maxCombo = Math.max(this.ctx.maxCombo, this.ctx.combo);
+        this.ctx.score += 20 + Math.min(5, this.ctx.combo) * 5;
+        this.ctx.stats.correct++;
+        this.firstSel = null;
+        this.render();
+      } else {
+        this.locked = true;
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('wrong');
+        this.ctx.combo = 0;
+        this.ctx.stats.wrong++;
+        this.ctx.miss(b.word);
+        const n1 = this.stage.querySelector(`[data-bubble="${this.firstSel.id}"]`);
+        const n2 = this.stage.querySelector(`[data-bubble="${b.id}"]`);
+        if (n1) n1.classList.add('games-room-bubble-wrong');
+        if (n2) n2.classList.add('games-room-bubble-wrong');
+        showToast('Eşleşmedi!', 'warning');
+        this.setTimeoutTracked(() => { this.firstSel = null; this.locked = false; this.render(); }, 500);
+      }
+    }
+    endGame(title) {
+      this.ctx.isOver = true;
+      this.ctx.stats.maxCombo = this.ctx.maxCombo;
+      renderGameOver(this.ctx, { title: title, subtitle: 'Kelime Patlatma tamamlandı', score: this.ctx.score, missed: this.ctx.missed });
+    }
+  }
+
+  // ==========================================================================
+  // OYUN 6: KELİME SAVUNMASI
+  // ==========================================================================
+  class WordDefenseGame extends BaseMiniGame {
+    constructor(ctx, words) {
+      super();
+      this.ctx = ctx;
+      this.words = words;
+      this.deck = createDeck(words);
+      this.maxHealth = 100;
+      this.health = 100;
+      this.enemies = [];
+      this.spawnInterval = 2600;
+      this.enemySpeed = 0.7;
+      this.wave = 0;
+      HUD.setTitle('Kelime Savunması', 'Doğru anlama ateş ederek kaleyi koru!');
+      HUD.setLives(this.ctx.lives);
+      this.render();
+      this.startLoop();
+      this.scheduleSpawn(600);
+    }
+    render() {
+      const stage = this.stage; if (!stage) return;
+      HUD.setScore(this.ctx.score);
+      HUD.setLives(this.ctx.lives);
+      stage.innerHTML = `
+        <div class="w-full max-w-xl flex flex-col items-center">
+          <div class="w-full flex items-center justify-between text-xs text-slate-400 mb-1 px-1">
+            <span>Kale Savunması</span>
+            <span class="text-emerald-400 font-bold">Kale Canı: ${Math.max(0, this.health)}%</span>
+          </div>
+          <div class="w-full h-2 bg-slate-800 rounded-full mb-3 overflow-hidden border border-slate-700">
+            <div id="defense-health" class="h-full bg-emerald-500 transition-all duration-300" style="width: ${Math.max(0, this.health)}%"></div>
+          </div>
+          <div class="games-room-arena" id="defense-arena">
+            <div class="games-room-castle"><i data-lucide="shield" class="w-5 h-5"></i></div>
+          </div>
+          <div class="w-full grid grid-cols-2 gap-2.5 mt-3" id="defense-options"></div>
+        </div>`;
+      this.afterRender();
+      this.renderEnemies();
+      this.renderOptions();
+    }
+    renderEnemies() {
+      const arena = document.getElementById('defense-arena');
+      if (!arena) return;
+      arena.querySelectorAll('.games-room-enemy').forEach(n => n.remove());
+      this.enemies.forEach(en => {
+        const el = document.createElement('div');
+        el.className = 'games-room-enemy';
+        el.setAttribute('data-enemy', en.id);
+        el.style.left = en.x + 'px';
+        el.style.top = en.y + 'px';
+        el.innerHTML = '<i data-lucide="skull" class="w-3.5 h-3.5"></i><span>' + escapeHtml(en.word.en) + '</span>';
+        arena.appendChild(el);
+      });
+      if (window.lucide) window.lucide.createIcons();
+    }
+    buildOptions() {
+      const alive = this.enemies.filter(e => !e.dead);
+      const opts = [];
+      const seen = new Set();
+      alive.forEach(e => {
+        const key = enLow(firstMeaning(e.word.tr));
+        if (!seen.has(key)) { seen.add(key); opts.push({ key: key, text: formatShortMeaning(e.word.tr, 26) }); }
+      });
+      const fill = shuffle(this.words);
+      for (let i = 0; i < fill.length && opts.length < 4; i++) {
+        const w = fill[i];
+        const key = enLow(firstMeaning(w.tr));
+        if (seen.has(key)) continue;
+        if (alive.some(e => e.word.id === w.id)) continue;
+        seen.add(key);
+        opts.push({ key: key, text: formatShortMeaning(w.tr, 26) });
+      }
+      return shuffle(opts).slice(0, 6);
+    }
+    renderOptions() {
+      const box = document.getElementById('defense-options');
+      if (!box) return;
+      const opts = this.buildOptions();
+      box.innerHTML = opts.map(o => '<button class="game-option-btn py-2.5 text-sm" data-opt="' + escapeHtml(o.key) + '"><span>' + escapeHtml(o.text) + '</span></button>').join('');
+      box.querySelectorAll('.game-option-btn').forEach(b =>
+        b.addEventListener('click', () => this.fire(b.getAttribute('data-opt'))));
+    }
+    scheduleSpawn(delay) { this.setTimeoutTracked(() => this.spawnEnemy(), delay); }
+    spawnEnemy() {
+      if (this.ctx.isOver) return;
+      const arena = document.getElementById('defense-arena');
+      const h = arena ? arena.clientHeight : 200;
+      const w = this.deck.next();
+      if (!w) { this.endGame('Kelimeler Bitti'); return; }
+      const lanes = Math.max(1, Math.floor((h - 40) / 46));
+      const lane = Math.floor(Math.random() * lanes);
+      this.enemies.push({ id: 'e' + Date.now() + Math.random().toString(36).slice(2, 5), word: w, x: 6, y: 8 + lane * 46, speed: this.enemySpeed + Math.random() * 0.25, dead: false });
+      this.wave++;
+      if (this.wave % 4 === 0) {
+        this.enemySpeed = Math.min(2.4, this.enemySpeed + 0.18);
+        this.spawnInterval = Math.max(1100, this.spawnInterval - 220);
+      }
+      this.renderEnemies();
+      this.renderOptions();
+      this.scheduleSpawn(this.spawnInterval);
+    }
+    startLoop() {
+      if (this.rafId) cancelAnimationFrame(this.rafId);
+      const tick = () => {
+        if (this.ctx.isOver) return;
+        const arena = document.getElementById('defense-arena');
+        const limit = arena ? arena.clientWidth - 74 : 380;
+        let changed = false;
+        this.enemies.forEach(en => {
+          if (en.dead) return;
+          en.x += en.speed;
+          const el = this.stage.querySelector('[data-enemy="' + en.id + '"]');
+          if (el) el.style.left = en.x + 'px';
+          if (en.x >= limit) {
+            en.dead = true; changed = true;
+            this.health -= 12;
+            this.ctx.miss(en.word);
+            this.ctx.stats.wrong++;
+            this.ctx.combo = 0;
+            if (typeof AudioService !== 'undefined') AudioService.playSfx('wrong');
+            const hb = document.getElementById('defense-health');
+            if (hb) hb.style.width = Math.max(0, this.health) + '%';
+            showToast('Kale hasar aldı! Kelime: ' + en.word.en, 'error');
+          }
+        });
+        if (changed) {
+          this.enemies = this.enemies.filter(e => !e.dead);
+          if (this.health <= 0) { this.endGame('Kale Düştü!'); return; }
+          this.renderEnemies();
+          this.renderOptions();
+        }
+        this.rafId = trackRaf(requestAnimationFrame(tick));
+      };
+      this.rafId = trackRaf(requestAnimationFrame(tick));
+    }
+    fire(optKey) {
+      if (this.ctx.isOver) return;
+      const target = this.enemies.find(e => !e.dead && enLow(firstMeaning(e.word.tr)) === optKey);
+      if (target) {
+        target.dead = true;
+        this.ctx.combo++; this.ctx.maxCombo = Math.max(this.ctx.maxCombo, this.ctx.combo);
+        this.ctx.score += 15 * Math.min(5, this.ctx.combo);
+        this.ctx.stats.correct++;
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('pop');
+        this.enemies = this.enemies.filter(e => !e.dead);
+        HUD.setScore(this.ctx.score);
+        this.renderEnemies();
+        this.renderOptions();
+      } else {
+        this.ctx.combo = 0;
+        this.ctx.stats.wrong++;
+        this.health -= 8;
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('wrong');
+        const hb = document.getElementById('defense-health');
+        if (hb) hb.style.width = Math.max(0, this.health) + '%';
+        showToast('Iskaladın! -8 Kale canı', 'warning');
+        if (this.health <= 0) { this.endGame('Kale Düştü!'); return; }
+      }
+    }
+    endGame(title) {
+      this.ctx.isOver = true;
+      if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = null; }
+      this.ctx.stats.maxCombo = this.ctx.maxCombo;
+      renderGameOver(this.ctx, { title: title, subtitle: 'Kelime Savunması tamamlandı', score: this.ctx.score, missed: this.ctx.missed });
+    }
+  }
+
+  // ==========================================================================
+  // OYUN 7: TELAFFUZLU HUNİ
+  // ==========================================================================
+  class WordFunnelGame extends BaseMiniGame {
+    constructor(ctx, words) {
+      super();
+      this.ctx = ctx;
+      this.words = words.filter(isAlphaWord);
+      this.deck = createDeck(this.words);
+      HUD.setTitle('Telaffuzlu Huni', 'Duyduğun kelimenin harflerini doğru sırayla yakala!');
+      HUD.hideLives();
+      this.newFunnel();
+    }
+    newFunnel() {
+      if (this.ctx.isOver) return;
+      const w = this.deck.next(); if (!w) { this.endGame('Kelimeler Bitti'); return; }
+      this.target = w;
+      this.answer = enUp(w.en).split('');
+      this.filled = [];
+      this.letters = this.buildLetterTiles();
+      this.render();
+      this.setTimeoutTracked(() => speakWordSafely(w.en), 350);
+    }
+    buildLetterTiles() {
+      const answer = this.answer.slice();
+      const extraCount = Math.min(4, Math.max(2, Math.round(answer.length / 2)));
+      const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+      const extras = shuffle(alphabet.filter(c => answer.indexOf(c) === -1)).slice(0, extraCount);
+      const tiles = answer.map(ch => ({ ch: ch, used: false }))
+        .concat(extras.map(ch => ({ ch: ch, used: false })));
+      return shuffle(tiles);
+    }
+    render() {
+      const stage = this.stage; if (!stage) return;
+      HUD.setScore(this.ctx.score);
+      stage.innerHTML = `
+        <div class="w-full max-w-lg flex flex-col items-center">
+          <div class="games-room-funnel">
+            <svg viewBox="0 0 100 80" class="w-full h-full stroke-cyan-400 stroke-2 fill-cyan-500/10"><polygon points="5,5 95,5 60,50 60,75 40,75 40,50" /></svg>
+            <div class="games-room-funnel-btns">
+              <button id="funnel-listen" class="games-room-listen-btn" title="Tekrar Dinle"><i data-lucide="volume-2" class="w-5 h-5"></i></button>
+              <button id="funnel-slow" class="games-room-listen-btn games-room-listen-slow" title="Yavaş Dinle"><i data-lucide="turtle" class="w-5 h-5"></i></button>
+            </div>
+          </div>
+          <div class="flex gap-2 mb-4 min-h-[46px] justify-center flex-wrap">
+            ${this.answer.map((_, i) => {
+              const ch = this.filled[i];
+              return ch
+                ? '<div class="games-room-slot games-room-slot-filled">' + escapeHtml(ch) + '</div>'
+                : '<div class="games-room-slot games-room-slot-empty">_</div>';
+            }).join('')}
+          </div>
+          <p class="text-xs text-slate-400 mb-3">Harfleri duyduğun sıraya göre yakala</p>
+          <div class="flex flex-wrap gap-2 justify-center" id="funnel-tiles">
+            ${this.letters.map((t, i) => `
+              <button class="games-room-letter ${t.used ? 'games-room-letter-used' : ''}" data-tile="${i}" ${t.used ? 'disabled' : ''}>${escapeHtml(t.ch)}</button>
+            `).join('')}
+          </div>
+        </div>`;
+      this.afterRender();
+      this.bind();
+    }
+    bind() {
+      const l = document.getElementById('funnel-listen'); if (l) l.addEventListener('click', () => speakWordSafely(this.target.en));
+      const s = document.getElementById('funnel-slow'); if (s) s.addEventListener('click', () => speakWordSafely(this.target.en, 0.6));
+      this.stage.querySelectorAll('.games-room-letter[data-tile]').forEach(b =>
+        b.addEventListener('click', () => this.tap(Number(b.getAttribute('data-tile')))));
+      if (!this.stageKeyHandler) {
+        this.onStageKeydown(e => {
+          if (/^[a-zA-Z]$/.test(e.key)) this.tapLetter(enUp(e.key));
+          else if (e.key === 'Backspace') { e.preventDefault(); this.undo(); }
+        });
+      }
+    }
+    tap(idx) {
+      const t = this.letters[idx];
+      if (!t || t.used) return;
+      const next = this.answer[this.filled.length];
+      if (t.ch === next) {
+        t.used = true;
+        this.filled.push(t.ch);
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('click');
+        if (this.filled.length === this.answer.length) { this.win(); return; }
+        this.render();
+      } else {
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('wrong');
+        this.ctx.stats.wrong++;
+        this.ctx.miss(this.target);
+        const el = this.stage.querySelector('[data-tile="' + idx + '"]');
+        if (el) { el.classList.add('games-room-letter-wrong'); setTimeout(() => el.classList.remove('games-room-letter-wrong'), 400); }
+        showToast('Yanlış harf!', 'warning');
+      }
+    }
+    tapLetter(letter) {
+      const idx = this.letters.findIndex(t => !t.used && t.ch === letter);
+      if (idx > -1) this.tap(idx);
+    }
+    undo() {
+      if (this.filled.length === 0) return;
+      const ch = this.filled.pop();
+      const idx = this.letters.findIndex(t => t.used && t.ch === ch);
+      if (idx > -1) this.letters[idx].used = false;
+      this.render();
+    }
+    win() {
+      this.ctx.combo++; this.ctx.maxCombo = Math.max(this.ctx.maxCombo, this.ctx.combo);
+      this.ctx.score += 25 + Math.min(5, this.ctx.combo) * 5;
+      this.ctx.stats.correct++;
+      if (typeof AudioService !== 'undefined') AudioService.playSfx('win');
+      showToast('Harika! Kelimeyi tamamladın.', 'success');
+      this.setTimeoutTracked(() => this.newFunnel(), 900);
+    }
+    endGame(title) {
+      this.ctx.isOver = true;
+      this.ctx.stats.maxCombo = this.ctx.maxCombo;
+      renderGameOver(this.ctx, { title: title, subtitle: 'Telaffuzlu Huni tamamlandı', score: this.ctx.score, missed: this.ctx.missed });
+    }
+  }
+
+  // ==========================================================================
+  // OYUN 8: GÖLGE DİNLEME (DİKTE)
+  // ==========================================================================
+  class ShadowListeningGame extends BaseMiniGame {
+    constructor(ctx, words) {
+      super();
+      this.ctx = ctx;
+      this.words = words.filter(isAlphaWord);
+      this.deck = createDeck(this.words);
+      HUD.setTitle('Gölge Dinleme', 'Duyduğun kelimeyi eksiksiz yaz (dikte)');
+      HUD.hideLives();
+      this.nextWord();
+    }
+    nextWord() {
+      if (this.ctx.isOver) return;
+      const w = this.deck.next(); if (!w) { this.endGame('Kelimeler Bitti'); return; }
+      this.target = w;
+      this.answer = w.en;
+      this.hintCount = 0;
+      this.hintPenalty = 0;
+      this.answered = false;
+      this.render();
+      this.setTimeoutTracked(() => speakWordSafely(w.en), 400);
+    }
+    render() {
+      const stage = this.stage; if (!stage) return;
+      HUD.setScore(this.ctx.score);
+      const len = this.answer.length;
+      const revealed = this.hintCount;
+      stage.innerHTML = `
+        <div class="w-full max-w-lg flex flex-col items-center">
+          <div class="w-full bg-slate-800/80 border border-slate-700 rounded-2xl p-6 text-center mb-4">
+            <span class="text-[11px] uppercase tracking-widest text-indigo-400 font-semibold mb-3 block">Telaffuzu Dinleyin</span>
+            <div class="flex items-center justify-center gap-3 mb-3">
+              <button id="shadow-listen" class="games-room-listen-btn games-room-listen-big" title="Normal Dinle (1.0x)"><i data-lucide="volume-2" class="w-7 h-7"></i></button>
+              <button id="shadow-slow" class="games-room-listen-btn games-room-listen-big games-room-listen-slow" title="Yavaş Dinle (0.65x)"><i data-lucide="turtle" class="w-7 h-7"></i></button>
+            </div>
+            <div class="flex items-center justify-center gap-1.5 mb-3 flex-wrap">
+              ${Array.from({ length: len }).map((_, i) => '<span class="games-room-dict-slot">' + (i < revealed ? escapeHtml(this.answer[i]) : '_') + '</span>').join('')}
+            </div>
+            <p class="text-xs text-indigo-300">Türkçe İpucu: ${escapeHtml(this.target.tr)}</p>
+          </div>
+          <div class="w-full space-y-3 games-room-dict-area">
+            <input type="text" id="shadow-input" placeholder="Duyduğun İngilizce kelimeyi yaz..."
+              class="w-full bg-slate-900 border-2 border-slate-700 rounded-xl p-3.5 text-center text-lg font-bold text-white focus:outline-none focus:border-indigo-500"
+              autocomplete="off" autocapitalize="none" spellcheck="false">
+            <div class="grid grid-cols-2 gap-2.5">
+              <button id="shadow-submit" class="py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition flex items-center justify-center gap-2">
+                <i data-lucide="check" class="w-4 h-4"></i> Kontrol Et
+              </button>
+              <button id="shadow-hint" class="py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold transition border border-slate-700 flex items-center justify-center gap-2">
+                <i data-lucide="lightbulb" class="w-4 h-4"></i> İpucu Al
+              </button>
+            </div>
+          </div>
+        </div>`;
+      this.afterRender();
+      this.bind();
+    }
+    bind() {
+      const l = document.getElementById('shadow-listen'); if (l) l.addEventListener('click', () => speakWordSafely(this.answer, 1.0));
+      const s = document.getElementById('shadow-slow'); if (s) s.addEventListener('click', () => speakWordSafely(this.answer, 0.65));
+      const sub = document.getElementById('shadow-submit'); if (sub) sub.addEventListener('click', () => this.check());
+      const hint = document.getElementById('shadow-hint'); if (hint) hint.addEventListener('click', () => this.hint());
+      const input = document.getElementById('shadow-input');
+      if (input) {
+        input.focus();
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') this.check(); });
+      }
+    }
+    hint() {
+      if (this.answered || this.hintCount >= this.answer.length - 1) return;
+      this.hintCount++;
+      this.hintPenalty += 8;
+      this.render();
+      const inp = document.getElementById('shadow-input');
+      if (inp) { inp.value = this.answer.slice(0, this.hintCount); inp.focus(); }
+    }
+    check() {
+      if (this.answered) return;
+      const input = document.getElementById('shadow-input');
+      const typed = enLow((input ? input.value : '').trim());
+      const target = enLow(this.answer);
+      this.answered = true;
+      if (typed === target) {
+        this.ctx.combo++; this.ctx.maxCombo = Math.max(this.ctx.maxCombo, this.ctx.combo);
+        this.ctx.score += Math.max(5, 30 - this.hintPenalty) + Math.min(5, this.ctx.combo) * 4;
+        this.ctx.stats.correct++;
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('correct');
+        showToast('Tebrikler! Doğru dikte.', 'success');
+        const stage = this.stage;
+        const area = stage ? stage.querySelector('.games-room-dict-area') : null;
+        if (stage && area && input) {
+          input.disabled = true;
+          const info = document.createElement('div');
+          info.className = 'w-full mt-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-center';
+          info.innerHTML = '<p class="text-white font-bold">' + escapeHtml(this.answer) + '</p>'
+            + '<p class="text-emerald-300 text-sm">' + escapeHtml(this.target.tr) + '</p>'
+            + (this.target.example_en ? '<p class="text-slate-300 text-xs mt-1 italic">' + escapeHtml(this.target.example_en) + '</p>' : '');
+          area.appendChild(info);
+        }
+        this.setTimeoutTracked(() => this.nextWord(), 1400);
+      } else {
+        this.ctx.combo = 0;
+        this.ctx.stats.wrong++;
+        this.ctx.miss(this.target);
+        if (typeof AudioService !== 'undefined') AudioService.playSfx('wrong');
+        showToast('Hatalı yazım. Doğrusu: ' + this.answer, 'error');
+        this.setTimeoutTracked(() => this.nextWord(), 1500);
+      }
+    }
+    endGame(title) {
+      this.ctx.isOver = true;
+      this.ctx.stats.maxCombo = this.ctx.maxCombo;
+      renderGameOver(this.ctx, { title: title, subtitle: 'Gölge Dinleme tamamlandı', score: this.ctx.score, missed: this.ctx.missed });
+    }
+  }
+
+  // ==========================================================================
+  // OYUN KAYIT DEFTERİ VE BAŞLATMA MANTIĞI
+  // ==========================================================================
+  const REGISTRY = {
+    'wordle':           { Cls: WordleGame,          title: 'Wordle',           min: 1, needsAlpha: true,  desc: 'Türkçe ipucu ile İngilizce kelimeyi bul.' },
+    'lane-runner':      { Cls: LaneRunnerGame,      title: 'Şerit Koşusu',     min: 4, needsAlpha: false, desc: 'Doğru İngilizce kelimenin şeridine geç.' },
+    'word-race':        { Cls: WordRaceGame,        title: 'Kelime Yarışı',    min: 4, needsAlpha: false, desc: 'Doğru kelime tüneline sür.' },
+    'word-bomb':        { Cls: WordBombGame,        title: 'Kelime Bombası',   min: 1, needsAlpha: true,  desc: 'Fitil bitmeden harfleri doğru diz.' },
+    'word-pop':         { Cls: WordPopGame,         title: 'Kelime Patlatma',  min: 4, needsAlpha: false, desc: 'İngilizce ve Türkçe eşleri patlat.' },
+    'word-defense':     { Cls: WordDefenseGame,     title: 'Kelime Savunması', min: 4, needsAlpha: false, desc: 'Doğru anlama ateş ederek kaleyi koru.' },
+    'word-funnel':      { Cls: WordFunnelGame,      title: 'Telaffuzlu Huni',  min: 1, needsAlpha: true,  desc: 'Huniden süzülen harfleri doğru sırayla yakala.' },
+    'shadow-listening': { Cls: ShadowListeningGame, title: 'Gölge Dinleme',    min: 1, needsAlpha: true,  desc: 'Duyduğun kelimeyi eksiksiz yaz.' }
+  };
+
+  let activeInstance = null;
+  let activeGameId = null;
+
+  function getGameWords(gameId) {
+    const cfg = REGISTRY[gameId];
+    const store = (typeof WordStore !== 'undefined') ? WordStore : null;
+    const raw = store ? store.getWords() : [];
+    let normalized = raw.map(normalizeGameWord).filter(Boolean);
+    if (cfg && cfg.needsAlpha) normalized = normalized.filter(isAlphaWord);
+    return normalized;
+  }
+
+  function showLoading(gameId) {
+    const cfg = REGISTRY[gameId];
+    const stage = document.getElementById('game-stage');
+    if (!stage) return;
+    stage.innerHTML = '<div class="flex flex-col items-center justify-center gap-3 text-slate-300 py-10">'
+      + '<div class="w-10 h-10 border-4 border-brand-500/30 border-t-brand-500 rounded-full games-room-spin"></div>'
+      + '<p class="text-sm">' + (cfg ? escapeHtml(cfg.title) : 'Oyun') + ' hazırlanıyor...</p></div>';
+  }
+
+  function showRoomError(gameId, message) {
     const stage = document.getElementById('game-stage');
     if (!stage) return;
     stage.innerHTML = `
       <div class="text-center p-6 max-w-md">
-        <div class="w-16 h-16 rounded-2xl bg-indigo-500/20 text-indigo-400 mx-auto flex items-center justify-center mb-4">
-          <i data-lucide="award" class="w-8 h-8"></i>
+        <div class="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 mx-auto flex items-center justify-center mb-4">
+          <i data-lucide="alert-triangle" class="w-8 h-8"></i>
         </div>
-        <h3 class="text-2xl font-bold font-display text-white mb-2">Tebrikler!</h3>
-        <p class="text-slate-300 text-sm mb-4">Gölge Dinleme alıştırması bitti. Skor: <span class="text-indigo-400 font-bold font-mono text-2xl">${this.score}</span></p>
-        <div class="flex items-center justify-center gap-3">
-          <button onclick="launchGame('shadow-listening')" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition">Tekrar Oyna</button>
-          <button onclick="closeGame()" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm transition border border-slate-700">Menüye Dön</button>
+        <h3 class="text-xl font-bold font-display text-white mb-2">Yeterli Kelime Yok</h3>
+        <p class="text-slate-300 text-sm mb-4">${escapeHtml(message)}</p>
+        <div class="flex items-center justify-center gap-3 flex-wrap">
+          <button id="games-room-disable-filter" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm transition">Filtreyi Kapatıp Oyna</button>
+          <button id="games-room-back-btn2" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700 transition">Oyun Odalarına Dön</button>
         </div>
-      </div>
-    `;
+      </div>`;
     if (window.lucide) window.lucide.createIcons();
+    const dis = document.getElementById('games-room-disable-filter');
+    if (dis) dis.addEventListener('click', () => {
+      try {
+        const toggle = document.getElementById('custom-study-filter-toggle');
+        if (toggle) { toggle.checked = false; toggle.dispatchEvent(new Event('change')); }
+        else if (typeof WordStore !== 'undefined') { WordStore.useOnlyStudyList = false; WordStore.notifyUpdate(); }
+      } catch (e) {}
+      launch(gameId);
+    });
+    const back = document.getElementById('games-room-back-btn2');
+    if (back) back.addEventListener('click', () => openRoom());
   }
 
-  destroy() {}
-}
+  function launch(gameId) {
+    const cfg = REGISTRY[gameId];
+    if (!cfg) { showToast('Bu oyun bulunamadı.', 'error'); return; }
 
-GAMES['word-pop'] = WordPopGame;
-GAMES['word-defense'] = WordDefenseGame;
-GAMES['word-funnel'] = WordFunnelGame;
-GAMES['shadow-listening'] = ShadowListeningGame;
+    if (typeof AuthStore !== 'undefined' && (!AuthStore.user || !AuthStore.user.id)) {
+      AuthStore.showGate();
+      showToast('Oyun oynamak için lütfen önce giriş yapın.', 'warning');
+      return;
+    }
+
+    cleanupActiveGame();
+    if (activeInstance && typeof activeInstance.destroy === 'function') { try { activeInstance.destroy(); } catch (e) {} }
+    activeInstance = null;
+    activeGameId = gameId;
+
+    const modal = document.getElementById('extra-games-modal');
+    if (modal) modal.classList.add('hidden');
+
+    const dashboard = document.getElementById('dashboard-view');
+    const playView = document.getElementById('game-play-view');
+    if (dashboard) dashboard.classList.add('hidden');
+    if (playView) playView.classList.remove('hidden');
+
+    HUD.capture();
+    HUD.setTitle(cfg.title, cfg.desc);
+    HUD.reset();
+
+    const words = getGameWords(gameId);
+
+    if (words.length === 0) {
+      showRoomError(gameId, 'Bu oyun için uygun kelime bulunamadı. Lütfen kelime listenizi kontrol edin.');
+      return;
+    }
+    if (words.length < cfg.min) {
+      const studyOn = (typeof WordStore !== 'undefined') && WordStore.useOnlyStudyList;
+      const msg = studyOn
+        ? 'Seçtiğiniz kelimeler listesinde bu oyun için yeterli kelime yok (En az ' + cfg.min + ' kelime gerekli). Üst menüden filtreyi kapatabilir veya daha fazla kelime yıldızlayabilirsiniz.'
+        : 'Bu oyunu oynamak için en az ' + cfg.min + ' kelime gerekli (Şu an: ' + words.length + '). Lütfen kelime ekleyin.';
+      showRoomError(gameId, msg);
+      return;
+    }
+
+    showLoading(gameId);
+
+    trackTimeout(setTimeout(() => {
+      try {
+        const ctx = buildContext(gameId, cfg.title, cfg.desc);
+        activeInstance = new cfg.Cls(ctx, words);
+        if (window.lucide) window.lucide.createIcons();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch (err) {
+        console.error('[GamesRoom] Oyun başlatma hatası:', err);
+        showRoomError(gameId, 'Oyun başlatılamadı. Lütfen tekrar deneyin.');
+      }
+    }, 60));
+  }
+
+  function openRoom() {
+    cleanupActiveGame();
+    if (activeInstance && typeof activeInstance.destroy === 'function') { try { activeInstance.destroy(); } catch (e) {} }
+    activeInstance = null;
+    activeGameId = null;
+    HUD.restore();
+    HUD.reset();
+
+    const playView = document.getElementById('game-play-view');
+    const dashboard = document.getElementById('dashboard-view');
+    if (playView) playView.classList.add('hidden');
+    if (dashboard) dashboard.classList.remove('hidden');
+
+    const modal = document.getElementById('extra-games-modal');
+    if (modal) modal.classList.remove('hidden');
+
+    if (typeof updateHeaderBadges === 'function') { try { updateHeaderBadges(); } catch (e) {} }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ESC ile oyun odalarına dön (yalnızca arcade oyunu aktifken çalışır)
+  globalKeyHandler = function (e) {
+    if (e.key === 'Escape' && activeGameId) openRoom();
+  };
+  try { window.addEventListener('keydown', globalKeyHandler); } catch (e) {}
+
+  return {
+    launch: launch,
+    openRoom: openRoom,
+    getActiveGameId: function () { return activeGameId; },
+    _internals: {
+      normalizeGameWord: normalizeGameWord,
+      formatShortMeaning: formatShortMeaning,
+      firstMeaning: firstMeaning,
+      isAlphaWord: isAlphaWord,
+      enUp: enUp,
+      enLow: enLow,
+      shuffle: shuffle,
+      createDeck: createDeck,
+      readBestScore: readBestScore,
+      writeBestScore: writeBestScore,
+      registry: REGISTRY
+    }
+  };
+})();
+
+window.GamesRoomManager = GamesRoomManager;
+window.launchArcadeGame = function (gameId) { GamesRoomManager.launch(gameId); };
+window.openArcadeRoom = function () { GamesRoomManager.openRoom(); };
+
 
 // ============================================================================
 // MODÜL: KOLAYDAN ZORA (KELİME KARTLARI + 5 ŞIKLI SEVİYE TESTİ)
@@ -4754,12 +5286,18 @@ class StepByStepLessonsGame {
     if (isPassed) AudioService.playSfx('win');
 
     const allComplete = !!(serverResult && serverResult.all_levels_complete);
+    const leveledUp = !!(serverResult && serverResult.leveled_up);
+    const levelComplete = !!(serverResult && serverResult.level_complete);
+    const serverNewLevel = (serverResult && serverResult.new_level) ? serverResult.new_level : this.currentLevel;
     const nextLevel = Math.min(this.currentLevel + 1, this.TOTAL_LEVELS);
     const isFinalLevel = this.currentLevel >= this.TOTAL_LEVELS;
 
     this.renderResultScreen({
       isPassed,
       allComplete,
+      leveledUp,
+      levelComplete,
+      serverNewLevel,
       isFinalLevel,
       nextLevel,
       totalQuestions,
@@ -4767,17 +5305,20 @@ class StepByStepLessonsGame {
     });
   }
 
-  renderResultScreen({ isPassed, allComplete, isFinalLevel, nextLevel, totalQuestions, serverResult }) {
+  renderResultScreen({ isPassed, allComplete, leveledUp, levelComplete, serverNewLevel, isFinalLevel, nextLevel, totalQuestions, serverResult }) {
     const stage = document.getElementById('game-stage');
     if (!stage) return;
 
-    // Başarılıysa ve son seviye değilse seviye yükselir
-    const levelUpAvailable = isPassed && !isFinalLevel;
-    if (levelUpAvailable) {
-      this.currentLevel = nextLevel;
+    // Seviye yalnızca sunucu "seviye tamamlandı" dediğinde (leveled_up) yükselir;
+    // yükselme otomatiktir, kullanıcı aynı akışla sonraki 10 kelimeye devam eder.
+    if (leveledUp && serverNewLevel) {
+      this.currentLevel = serverNewLevel;
       this.updateLevelBadge(this.currentLevel);
       this.saveLocalProgress();
     }
+
+    const showRestart = allComplete;
+    const showNext = isPassed && !allComplete;
 
     const icon = isPassed ? 'trophy' : 'alert-circle';
     const title = allComplete
@@ -4789,14 +5330,13 @@ class StepByStepLessonsGame {
       infoLine += 'Seviyeyi geçmek için en az %80 (8/10) başarı gereklidir.';
     } else if (allComplete) {
       infoLine += 'Tüm 5 seviyeyi başarıyla bitirdiniz. İsterseniz yeni bir tur başlatabilirsiniz.';
+    } else if (leveledUp) {
+      infoLine += `Seviye tamamlandı, Seviye ${serverNewLevel} kilidi açıldı!`;
     } else if (isFinalLevel) {
       infoLine += 'Seviye 5 tamamlandı! Aşağıdan istediğiniz seviyeyi seçip tekrar edebilirsiniz.';
     } else {
-      infoLine += `Seviye ${nextLevel} kilidi açıldı!`;
+      infoLine += 'Harika! Bu seviyede öğrenilecek yeni kelimeler var.';
     }
-
-    const showRestart = allComplete || (isPassed && isFinalLevel);
-    const showNext = isPassed && !isFinalLevel && !allComplete;
 
     stage.innerHTML = `
       <div class="text-center p-6 max-w-md animate-pop">
@@ -4828,8 +5368,8 @@ class StepByStepLessonsGame {
               Yeni Tura Başla (Sıfırla) ⟳
             </button>
           ` : (showNext ? `
-            <button id="lesson-next-level-btn" class="w-full sm:w-auto px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-600/30 transition">
-              Seviye ${nextLevel}'e Devam Et &rarr;
+            <button id="lesson-next-level-btn" data-next-level="${this.currentLevel}" class="w-full sm:w-auto px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-600/30 transition">
+              Sonraki 10 Yeni Kelimeye Geç &rarr;
             </button>
           ` : `
             <button id="lesson-retry-btn" class="w-full sm:w-auto px-6 py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm shadow-lg shadow-amber-600/30 transition">
@@ -4849,7 +5389,8 @@ class StepByStepLessonsGame {
     if (nextLevelBtn) {
       nextLevelBtn.addEventListener('click', () => {
         AudioService.playSfx('click');
-        this.loadLevel(nextLevel);
+        const target = parseInt(nextLevelBtn.getAttribute('data-next-level'), 10) || this.currentLevel;
+        this.loadLevel(target);
       });
     }
 

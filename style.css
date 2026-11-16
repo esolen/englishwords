@@ -531,3 +531,406 @@ h1, h2, h3, h4, h5, h6, .font-display {
   0%, 100% { height: 8px; }
   50% { height: 32px; }
 }
+
+/* ==========================================================================
+   EKSTRA OYUNLAR ODASI (ARCADE) — İzole Modül Stilleri
+   Tüm sınıflar games-room-* ön eki ile isimlendirilmiştir; diğer modüllerin
+   stilleriyle çakışmaz.
+   ========================================================================== */
+
+.games-room-spin {
+  animation: gamesRoomSpin 0.8s linear infinite;
+}
+@keyframes gamesRoomSpin {
+  to { transform: rotate(360deg); }
+}
+
+.games-room-shake {
+  animation: shakeWrong 0.45s ease;
+}
+
+.games-room-flash-green {
+  animation: gamesRoomFlashGreen 0.5s ease;
+}
+@keyframes gamesRoomFlashGreen {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  40% { box-shadow: 0 0 24px 4px rgba(16, 185, 129, 0.55); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* Ortak buton & kutu stilleri */
+.games-room-key {
+  min-width: 1.75rem;
+  height: 2.5rem;
+  padding: 0 0.35rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #fff;
+  background: #1e293b;
+  border: 1px solid #334155;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.games-room-key:hover { background: #334155; }
+.games-room-key:active { transform: scale(0.94); }
+.games-room-key-wide { min-width: 3.25rem; font-size: 0.65rem; }
+
+.games-room-wordle-cell {
+  width: 2.75rem;
+  height: 2.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  border: 2px solid #334155;
+  border-radius: 0.5rem;
+  background: rgba(15, 23, 42, 0.6);
+  color: #fff;
+}
+@media (max-width: 420px) {
+  .games-room-wordle-cell { width: 2.15rem; height: 2.15rem; font-size: 1rem; }
+  .games-room-key { min-width: 1.5rem; height: 2.25rem; }
+}
+.games-room-wordle-cell.correct {
+  background: #10b981; border-color: #10b981; color: #fff;
+  animation: gamesRoomCellPop 0.35s ease;
+}
+.games-room-wordle-cell.present {
+  background: #f59e0b; border-color: #f59e0b; color: #fff;
+  animation: gamesRoomCellPop 0.35s ease;
+}
+.games-room-wordle-cell.absent {
+  background: #334155; border-color: #334155; color: #94a3b8;
+}
+@keyframes gamesRoomCellPop {
+  0% { transform: scale(0.9); }
+  60% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+/* Şerit Koşusu */
+.games-room-track {
+  position: relative;
+  width: 100%;
+  height: 280px;
+  background: #020617;
+  border: 2px solid #334155;
+  border-radius: 1rem;
+  overflow: hidden;
+  display: flex;
+}
+.games-room-lane {
+  flex: 1;
+  border-right: 1px dashed #334155;
+  display: flex;
+  justify-content: center;
+  padding-top: 0.5rem;
+  cursor: pointer;
+}
+.games-room-lane:last-of-type { border-right: none; }
+.games-room-lane-label {
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+  background: rgba(30, 41, 59, 0.95);
+  border: 1px solid #475569;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  transition: transform 0.08s linear, border-color 0.2s ease, background 0.2s ease;
+  white-space: nowrap;
+}
+.games-room-lane-active .games-room-lane-label {
+  border-color: #60a5fa;
+  background: rgba(37, 99, 235, 0.35);
+}
+.games-room-runner {
+  position: absolute;
+  bottom: 0.75rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  background: #3b82f6;
+  border: 2px solid #fff;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 18px rgba(59, 130, 246, 0.6);
+  transition: left 0.15s ease;
+}
+
+/* Kelime Yarışı */
+.games-room-highway {
+  position: relative;
+  width: 100%;
+  height: 280px;
+  background: #020617;
+  border: 2px solid rgba(245, 158, 11, 0.35);
+  border-radius: 1rem;
+  overflow: hidden;
+}
+.games-room-tunnels {
+  display: flex;
+  width: 100%;
+  background: rgba(15, 23, 42, 0.9);
+  border-bottom: 1px solid #334155;
+}
+.games-room-tunnel {
+  flex: 1;
+  padding: 0.5rem;
+  text-align: center;
+  border-right: 1px solid #334155;
+  cursor: pointer;
+}
+.games-room-tunnel:last-child { border-right: none; }
+.games-room-tunnel-label { font-size: 0.6rem; color: #fcd34d; font-weight: 700; }
+.games-room-tunnel-word {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #fff;
+  margin-top: 0.15rem;
+  word-break: break-word;
+}
+.games-room-car {
+  position: absolute;
+  bottom: 0;
+  width: 2.5rem;
+  height: 3.5rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(to top, #d97706, #fbbf24);
+  border: 1px solid #fde68a;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 18px rgba(245, 158, 11, 0.55);
+  transition: left 0.15s ease;
+}
+
+.games-room-steer {
+  padding: 0.7rem 0.5rem;
+  border-radius: 0.75rem;
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.8rem;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.games-room-steer:hover { background: #334155; }
+.games-room-steer:active { transform: scale(0.96); }
+.games-room-steer-jump { color: #6ee7b7; }
+
+/* Kelime Bombası & Huni — harf kutuları */
+.games-room-slot {
+  width: 2.25rem;
+  height: 2.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  font-weight: 800;
+  font-size: 1.1rem;
+}
+.games-room-slot-filled {
+  background: #2563eb;
+  color: #fff;
+  animation: pulseCorrect 0.3s ease;
+}
+.games-room-slot-empty {
+  border: 1px dashed #475569;
+  color: #64748b;
+}
+.games-room-letter {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.75rem;
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #fff;
+  font-weight: 800;
+  font-size: 1rem;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+.games-room-letter:hover:not(:disabled) { background: #334155; }
+.games-room-letter:active:not(:disabled) { transform: scale(0.93); }
+.games-room-letter-used { opacity: 0.3; pointer-events: none; }
+.games-room-letter-wrong {
+  background: rgba(244, 63, 94, 0.35) !important;
+  border-color: #f43f5e !important;
+  animation: shakeWrong 0.4s ease;
+}
+.games-room-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  transition: color 0.15s ease;
+}
+.games-room-mini-btn:hover { color: #fff; }
+.games-room-bomb-pulse { animation: gamesRoomBombPulse 0.5s ease-in-out infinite alternate; }
+@keyframes gamesRoomBombPulse {
+  from { transform: scale(1); box-shadow: 0 0 12px rgba(244, 63, 94, 0.5); }
+  to { transform: scale(1.08); box-shadow: 0 0 26px rgba(244, 63, 94, 0.85); }
+}
+
+/* Kelime Patlatma (baloncuklar) */
+.games-room-bubble-field {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  min-height: 300px;
+  width: 100%;
+}
+.games-room-bubble {
+  border-radius: 9999px;
+  color: #fff;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0.5rem;
+  line-height: 1.15;
+  box-shadow: 0 8px 20px -6px rgba(0, 0, 0, 0.5);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  word-break: break-word;
+}
+.games-room-bubble span { padding: 0 0.25rem; }
+.games-room-bubble-en { background: linear-gradient(135deg, #3b82f6, #4f46e5); }
+.games-room-bubble-tr { background: linear-gradient(135deg, #a855f7, #db2777); }
+.games-room-bubble:hover { transform: scale(1.06); }
+.games-room-bubble:active { transform: scale(0.94); }
+.games-room-bubble-sel { outline: 4px solid #fff; animation: gamesRoomBubbleSel 0.9s ease-in-out infinite; }
+@keyframes gamesRoomBubbleSel {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.5); }
+  50% { box-shadow: 0 0 22px 6px rgba(255, 255, 255, 0.35); }
+}
+.games-room-bubble-wrong {
+  background: linear-gradient(135deg, #ef4444, #b91c1c) !important;
+  animation: shakeWrong 0.4s ease;
+}
+
+/* Kelime Savunması */
+.games-room-arena {
+  position: relative;
+  width: 100%;
+  height: 240px;
+  background: #020617;
+  border: 2px solid #334155;
+  border-radius: 1rem;
+  overflow: hidden;
+}
+.games-room-enemy {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.75rem;
+  background: #dc2626;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.8rem;
+  box-shadow: 0 0 16px rgba(220, 38, 38, 0.55);
+  white-space: nowrap;
+  will-change: left;
+}
+.games-room-castle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 2.75rem;
+  background: rgba(30, 41, 59, 0.95);
+  border-left: 3px solid #10b981;
+  color: #34d399;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Telaffuzlu Huni */
+.games-room-funnel {
+  position: relative;
+  width: 11rem;
+  height: 9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+.games-room-funnel-btns {
+  position: absolute;
+  display: flex;
+  gap: 0.5rem;
+}
+.games-room-listen-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.7rem;
+  border-radius: 9999px;
+  background: #06b6d4;
+  color: #020617;
+  box-shadow: 0 0 18px rgba(6, 182, 212, 0.45);
+  transition: transform 0.15s ease;
+}
+.games-room-listen-btn:hover { transform: scale(1.08); }
+.games-room-listen-btn:active { transform: scale(0.94); }
+.games-room-listen-slow { background: #38bdf8; }
+.games-room-listen-big { padding: 1rem; }
+
+/* Gölge Dinleme (Dikte) */
+.games-room-dict-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 2rem;
+  border-bottom: 2px solid #6366f1;
+  font-weight: 800;
+  color: #c7d2fe;
+  font-size: 1.1rem;
+}
+
+/* Ortak Oyun Sonu Özeti */
+.games-room-summary { animation: fadeIn 0.3s ease-out; }
+.games-room-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.6rem 0.4rem;
+  border-radius: 0.75rem;
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px solid #334155;
+}
+.games-room-missed-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+}
+.games-room-speak-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem;
+  border-radius: 0.5rem;
+  background: #1e293b;
+  color: #93c5fd;
+  border: 1px solid #334155;
+  transition: background 0.15s ease;
+}
+.games-room-speak-btn:hover { background: #334155; color: #fff; }
