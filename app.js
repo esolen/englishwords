@@ -2747,11 +2747,6 @@ class MatchingGame {
         const cardData = allCards.find(c => c.id === cardId);
         if (!cardData || cardData.matched) return;
 
-        // İngilizce karta tıklandığında telaffuz
-        if (cardData.type === 'en') {
-          AudioService.speak(cardData.text);
-        }
-
         if (this.firstSelected && this.firstSelected.card.id === cardId) {
           el.classList.remove('selected');
           this.firstSelected = null;
