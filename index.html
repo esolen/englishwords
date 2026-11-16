@@ -27,7 +27,7 @@
   <!-- Tesseract.js (El Yazısı OCR Motoru) CDN -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <!-- Yerel Stiller (Cache Busting v=2.0) -->
-  <link rel="stylesheet" href="style.css?v=4.3">
+  <link rel="stylesheet" href="style.css?v=4.4">
   <script>
     tailwind.config = {
       theme: {
@@ -282,24 +282,6 @@
 
           <!-- Kart Düzeni Kontrolleri (Düzenle / Kilitle / Sıfırla) -->
           <div id="dashboard-layout-controls-anchor" class="flex items-center gap-2 self-start sm:self-auto"></div>
-
-          <!-- Global Kelime Türü Filtresi (part_of_speech) -->
-          <div class="flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 border border-slate-700/80 shadow-sm self-start sm:self-auto">
-            <label for="global-pos-filter" class="cursor-pointer flex items-center gap-1.5 text-xs font-semibold text-slate-200 select-none">
-              <i data-lucide="filter" class="w-3.5 h-3.5 text-brand-400"></i>
-              <span>Kelime Türü</span>
-            </label>
-            <select id="global-pos-filter" class="text-xs bg-slate-900 border border-slate-700 rounded-lg text-slate-200 py-1 px-2 focus:outline-none focus:ring-1 focus:ring-brand-500 cursor-pointer">
-              <option value="all">Tümü</option>
-              <option value="Verb">Fiil</option>
-              <option value="Noun">İsim</option>
-              <option value="Adj">Sıfat</option>
-              <option value="Adv">Zarf</option>
-              <option value="Phrasal Verb">Deyimsel Fiil</option>
-              <option value="Preposition">Edat</option>
-              <option value="Conjunction">Bağlaç</option>
-            </select>
-          </div>
 
           <!-- Özel Çalışma Havuzu Toggle Switch -->
           <div class="flex items-center gap-2.5 p-2 rounded-xl bg-slate-800/80 border border-slate-700/80 shadow-sm self-start sm:self-auto">
@@ -682,6 +664,6 @@
   <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
 
   <!-- Yerel Uygulama Scripti (Cache Busting v=3.0) -->
-  <script src="app.js?v=4.3"></script>
+  <script src="app.js?v=4.4"></script>
 </body>
 </html>

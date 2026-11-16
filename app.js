@@ -8,23 +8,13 @@ const WordStore = {
   words: [],
   studyList: new Set(), // Kullanıcının seçtiği özel kelimeler (english lowercase)
   useOnlyStudyList: false, // "Sadece Seçtiğim Kelimelerle Çalış" Filtresi
-  posFilter: 'all', // Global Kelime Türü Filtresi: 'all' | 'Verb' | 'Noun' | 'Adj' | ...
   DIFFICULT_THRESHOLD: 1,
 
   getWords() {
-    // 1) Bozuk/eksik alanlı kayıtları ayıkla (arayüz çökmesin)
+    // Bozuk/eksik alanlı kayıtları ayıkla (arayüz çökmesin)
     let list = (this.words || []).filter(w => w && w.en != null && String(w.en).trim() !== '' && w.tr != null);
 
-    // 2) Global Kelime Türü Filtresi — 'all' iken HİÇBİR filtreleme yapılmaz
-    if (this.posFilter && this.posFilter !== 'all') {
-      const target = String(this.posFilter).toLowerCase();
-      list = list.filter(w => {
-        const pos = (typeof resolveWordPos === 'function' ? resolveWordPos(w) : (w.partOfSpeech || w.pos || '')) || '';
-        return String(pos).toLowerCase() === target;
-      });
-    }
-
-    // 3) "Sadece Seçtiğim Kelimelerle Çalış" filtresi
+    // "Sadece Seçtiğim Kelimelerle Çalış" filtresi
     if (this.useOnlyStudyList) {
       list = list.filter(w => this.studyList.has(String(w.en).toLowerCase()));
     }
@@ -629,26 +619,6 @@ function setupModals() {
         showToast(`Özel Çalışma Havuzu Aktif! (${filteredCount} kelime)`, 'success');
       } else {
         showToast('Tüm kelime havuzuna dönüldü.', 'info');
-      }
-      updateHeaderBadges();
-    });
-  }
-
-  // Global Kelime Türü Filtresi (part_of_speech) — 'all' iken filtreleme yapılmaz
-  const posFilterSelect = document.getElementById('global-pos-filter');
-  if (posFilterSelect) {
-    try {
-      const savedPos = localStorage.getItem('global_pos_filter_v1');
-      if (savedPos) { posFilterSelect.value = savedPos; WordStore.posFilter = savedPos; }
-    } catch (e) { /* yoksay */ }
-    posFilterSelect.addEventListener('change', (e) => {
-      WordStore.posFilter = e.target.value || 'all';
-      try { localStorage.setItem('global_pos_filter_v1', WordStore.posFilter); } catch (err) { /* yoksay */ }
-      const count = WordStore.getWords().length;
-      if (WordStore.posFilter === 'all') {
-        showToast('Kelime türü filtresi kaldırıldı (Tümü).', 'info');
-      } else {
-        showToast(`Kelime türü filtresi: ${posLabelTr(WordStore.posFilter)} (${count} kelime)`, 'success');
       }
       updateHeaderBadges();
     });

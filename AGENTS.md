@@ -70,11 +70,13 @@ Vercel serverless fonksiyonları (`api/*.js`) + Neon PostgreSQL backend.
   (`fetched` bayrağı). Arayüzdeki her DOM erişimi `if (el)` ile korunur.
 - Tüm `w.en`/`w.tr` erişimlerinde `String(w.en || '')` kullanın; DB'den `null/undefined` gelebilir.
 
-## Global Kelime Türü Filtresi
+## Kelime Türü Filtresi (KALDIRILDI)
 
-- `WordStore.posFilter` ('all' varsayılan) → `getWords()` içinde uygulanır. **'all' iken filtreleme yok.**
-- Eşleştirme `.toLowerCase()` ile büyük/küçük harf duyarsızdır; tür tespiti `resolveWordPos()` ile.
-- localStorage anahtarı: `global_pos_filter_v1`. UI: `#global-pos-filter` (dashboard başlığı).
+- Global "Kelime Türü" filtresi (`WordStore.posFilter`, `#global-pos-filter`, `global_pos_filter_v1`)
+  **tamamen kaldırıldı** — istek üzerine. `getWords()` artık kelime türüne göre filtreleme yapmaz;
+  yalnızca bozuk kayıtları ayıklar ve "Sadece Seçtiğim Kelimelerle Çalış" filtresini uygular.
+- Geri eklemeyin. `resolveWordPos()` / `posLabelTr()` yardımcıları SADECE gösterim ve çeldirici
+  seçimi için (Çoktan Seçmeli) hâlâ kullanılmaktadır; filtreleme amacıyla kullanılmamalıdır.
 
 ## Çoktan Seçmeli Test (multiple-choice)
 
