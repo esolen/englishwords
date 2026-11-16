@@ -1,10 +1,10 @@
 /**
- * Kolaydan Zora - Dinamik Ders Motoru
+ * Kolaydan Zora - Dinamik Ders Motoru (5 Seviyeli)
  *
  * Bu modül sabit/hardcoded kelime dizileri içermez. Tüm kelimeler çağıran
  * tarafından (kullanıcının veritabanı havuzundan) beslenir ve aşağıdaki işler
  * tamamen dinamik olarak hesaplanır:
- *   1. Otomatik zorluk puanlaması ve seviye (Seviye 1..N) bölünmesi
+ *   1. Otomatik zorluk puanlaması ve TAM 5 ana seviyeye (Seviye 1..5) bölünme
  *   2. Kelime türü (pos) tespiti
  *   3. Doğal, dilbilgisi uyumlu örnek cümle üretimi (+ Gemini opsiyonu)
  *   4. Akıllı çeldirici üretimi ve 5 şıklı test kurulumu
@@ -13,10 +13,11 @@
 
 const https = require('https');
 
-const LEVEL_SIZE = 10;      // Her ders oturumundaki kelime sayısı
-const OPTION_COUNT = 5;     // 1 doğru + 4 çeldirici
-const PASS_RATIO = 0.8;     // Seviye geçme eşiği (%80)
-const BLANK = '....................';
+const LEVEL_SIZE = 10;       // Her ders oturumundaki kelime sayısı
+const LEVEL_COUNT = 5;       // Kolaydan Zora toplam seviye sayısı
+const OPTION_COUNT = 5;      // 1 doğru + 4 çeldirici
+const PASS_RATIO = 0.8;      // Seviye geçme eşiği (%80)
+const BLANK = '_______';     // Test cümlesindeki boşluk
 
 // ---------------------------------------------------------------------------
 // 0. Genel yardımcılar
@@ -53,7 +54,7 @@ function weightedSample(pool, weightFn, count) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Otomatik zorluk sınıflandırma (Kolaydan Zora)
+// 1. Otomatik zorluk sınıflandırma (5 seviye)
 // ---------------------------------------------------------------------------
 const COMMON_A1_A2 = new Set([
   'daily', 'study', 'accept', 'achieve', 'improve', 'decide', 'important', 'modern',
@@ -61,69 +62,125 @@ const COMMON_A1_A2 = new Set([
   'speak', 'write', 'read', 'think', 'understand', 'remember', 'travel', 'follow',
   'happen', 'provide', 'continue', 'include', 'expect', 'develop', 'require',
   'simple', 'useful', 'future', 'friend', 'family', 'people', 'action', 'reason',
-  'water', 'house', 'school', 'happy', 'small', 'great', 'place', 'time', 'work'
+  'water', 'house', 'school', 'happy', 'small', 'great', 'place', 'time', 'work',
+  'book', 'food', 'money', 'music', 'city', 'country', 'problem', 'answer', 'question'
 ]);
 
 const ACADEMIC_C1_C2 = new Set([
   'furthermore', 'nevertheless', 'subsequently', 'notwithstanding', 'consequently',
   'moreover', 'nonetheless', 'predominantly', 'inevitably', 'comprehensive',
   'sustainability', 'implementation', 'sophistication', 'accommodation', 'hypothesis',
-  'paradigm', 'ubiquitous', 'meticulous', 'ambiguous', 'coherent', 'empirical'
+  'paradigm', 'ubiquitous', 'meticulous', 'ambiguous', 'coherent', 'empirical',
+  'resilient', 'courageous', 'preliminary', 'inherent', 'arbitrary', 'profound'
 ]);
 
 const ACADEMIC_SUFFIXES = [
   'tion', 'sion', 'ment', 'ance', 'ence', 'ible', 'able', 'tude', 'logy',
-  'eous', 'ious', 'ness', 'ship', 'ical', 'ism', 'ity', 'ency'
+  'eous', 'ious', 'ness', 'ship', 'ical', 'ism', 'ity', 'ency', 'ate', 'ous'
 ];
 
 /**
- * Bir kelime için YDS/CEFR tabanlı dinamik zorluk puanı üretir.
- * Düşük puan = kolay, yüksek puan = zor.
+ * Bir kelimenin dinamik zorluk puanını üretir (yüksek puan = zor).
+ * Puan; harf uzunluğu, phrasal/türemiş yapı, YDS akademik ağırlığı ve
+ * kullanıcının geçmiş yanlış istatistiklerinden hesaplanır.
  */
-function calculateDifficulty(word) {
+function difficultyScore(word) {
   const en = normalizeWord(word.english || word.en || '');
-  const cleanLen = en.replace(/[^a-z]/g, '').length;
+  const letters = en.replace(/[^a-z]/g, '');
+  const len = letters.length;
   const wrongCount = Number(word.wrongCount || word.wrong_count || 0);
 
-  let score = 40; // temel başlangıç
+  let score = 0;
 
-  if (COMMON_A1_A2.has(en)) score -= 30;
-  if (cleanLen <= 3 && !COMMON_A1_A2.has(en)) score += 70; // nadir kısa/arkaik kelimeler
-  if (en.includes(' ') || en.includes('-')) score += 110;  // phrasal / birleşik yapılar
-  if (ACADEMIC_C1_C2.has(en)) score += 100;
+  // 1) Harf uzunluğu (temel ayraç)
+  if (len <= 5) score += 0;
+  else if (len <= 7) score += 1;
+  else if (len <= 9) score += 2;
+  else if (len <= 11) score += 3;
+  else score += 4;
 
-  score += cleanLen * 4;
+  // 2) Phrasal / birleşik yapılar (take off, well-known ...)
+  if (en.includes(' ') || en.includes('-')) score += 2;
 
-  ACADEMIC_SUFFIXES.forEach(suffix => {
-    if (en.endsWith(suffix)) score += 18;
-  });
+  // 3) Akademik / türetilmiş yapı
+  if (ACADEMIC_SUFFIXES.some(s => letters.endsWith(s))) score += 1;
 
-  // Daha önce yanlış cevaplanan kelimeler ileri seviyeye taşınır
-  score += Math.min(60, wrongCount * 20);
+  // 4) Sıklık (CEFR) ipuçları
+  if (COMMON_A1_A2.has(en)) score -= 2;
+  if (ACADEMIC_C1_C2.has(en)) score += 4;
+
+  // 5) Kullanıcının geçmiş yanlış istatistikleri (zorlu kelimeler üst seviyeye taşınır)
+  score += Math.min(3, wrongCount);
 
   return score;
 }
 
 /**
- * Havuzu zorluğa göre sıralar ve 10'arlı seviyelere böler.
- * Döndürülen her seviye: { levelNumber, words: [...] }
+ * Kelimeyi tam olarak 1..5 arası bir seviyeye atar.
+ *   Seviye 1 (Başlangıç):  en temel, kısa ve yaygın kelimeler
+ *   Seviye 2 (Temel-Orta): temel fiil/sıfat/isimler
+ *   Seviye 3 (Orta):       birden fazla anlamlı / bağlaç-zarf yapıları
+ *   Seviye 4 (Orta-İleri): soyut ve YDS düzeyinde akademik kelimeler
+ *   Seviye 5 (İleri):      en zorlu, nadir akademik ve phrasal yapılar
  */
-function buildLevelPlan(words) {
-  const scored = (words || []).map(word => ({
+function classifyDifficultyLevel(word) {
+  const score = difficultyScore(word);
+  if (score <= 0) return 1;
+  if (score <= 2) return 2;
+  if (score <= 4) return 3;
+  if (score <= 6) return 4;
+  return 5;
+}
+
+// Bir listeyi `parts` adet dengeli parçaya böler (fazlalık önceki parçalara dağıtılır)
+function chunkBalanced(sorted, parts) {
+  const n = sorted.length;
+  const base = Math.floor(n / parts);
+  let rem = n % parts;
+  const out = [];
+  let idx = 0;
+  for (let i = 0; i < parts; i++) {
+    const size = base + (rem > 0 ? 1 : 0);
+    if (rem > 0) rem--;
+    out.push(sorted.slice(idx, idx + size));
+    idx += size;
+  }
+  return out;
+}
+
+/**
+ * Havuzu otomatik zorluk sınıflandırmasıyla TAM 5 seviyeye böler.
+ * Özellik bazlı sınıflandırma seviyeleri dengesiz bırakırsa (boş seviye
+ * oluşursa) kelimeler zorluk puanına göre 5 dengeli parçaya yeniden dağıtılır.
+ * Döndürülen: [{ levelNumber, words }, ...] (her zaman 5 eleman)
+ */
+function buildFiveLevels(words) {
+  const list = Array.isArray(words) ? words : [];
+  const scored = list.map(word => ({
     word,
-    difficulty: calculateDifficulty(word)
+    score: difficultyScore(word),
+    level: classifyDifficultyLevel(word)
   }));
 
-  scored.sort((a, b) => a.difficulty - b.difficulty);
+  const buckets = Array.from({ length: LEVEL_COUNT }, () => []);
+  scored.forEach(item => buckets[item.level - 1].push(item.word));
 
-  const levels = [];
-  for (let i = 0; i < scored.length; i += LEVEL_SIZE) {
-    levels.push({
-      levelNumber: levels.length + 1,
-      words: scored.slice(i, i + LEVEL_SIZE).map(item => item.word)
-    });
+  const nonEmpty = buckets.filter(b => b.length > 0).length;
+  const desired = Math.min(LEVEL_COUNT, scored.length);
+
+  // Özellik bazlı bölünme yeterli seviye üretmediyse dengeli parçalara böl
+  if (scored.length >= LEVEL_COUNT && nonEmpty < desired) {
+    const sorted = [...scored].sort((a, b) => a.score - b.score);
+    const chunks = chunkBalanced(sorted, LEVEL_COUNT);
+    for (let i = 0; i < LEVEL_COUNT; i++) {
+      buckets[i] = chunks[i].map(item => item.word);
+    }
   }
-  return levels;
+
+  return buckets.map((bucketWords, i) => ({
+    levelNumber: i + 1,
+    words: bucketWords
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -140,12 +197,19 @@ const COMMON_ADVERBS = new Set([
   'simply', 'totally', 'truly', 'unfortunately', 'widely'
 ]);
 
+// Phrasal yapılarda ilk kelimenin fiil olma olasılığı yüksektir
+const COMMON_VERB_STEMS = new Set([
+  'take', 'get', 'give', 'put', 'look', 'turn', 'come', 'go', 'make', 'do',
+  'run', 'set', 'bring', 'call', 'carry', 'break', 'hold', 'keep', 'pick',
+  'point', 'pull', 'show', 'stand', 'work', 'write', 'cut', 'find', 'figure'
+]);
+
 function detectPos(word) {
   const explicit = normalizeWord(word.pos || word.posTag || word.partOfSpeech || '');
   const aliases = {
     noun: 'noun', n: 'noun', isim: 'noun',
     verb: 'verb', v: 'verb', fiil: 'verb',
-    adjective: 'adjective', adj: 'adjective', sıfat: 'adjective', sifat: 'adjective',
+    adjective: 'adjective', adj: 'adjective', sifat: 'adjective',
     adverb: 'adverb', adv: 'adverb', zarf: 'adverb'
   };
   if (aliases[explicit]) return aliases[explicit];
@@ -156,6 +220,13 @@ function detectPos(word) {
   if (!en) return 'unknown';
 
   if (COMMON_ADVERBS.has(en)) return 'adverb';
+
+  // Phrasal / birleşik yapılar
+  if (en.includes(' ')) {
+    const first = en.split(' ')[0];
+    if (COMMON_VERB_STEMS.has(first)) return 'verb';
+    return 'noun';
+  }
 
   // Türkçe karşılığından ipucu
   if (/(mak|mek)$/.test(tr.split(',')[0].trim())) return 'verb';
@@ -174,7 +245,7 @@ function detectPos(word) {
 // 3. Doğal örnek cümle üretimi
 // ---------------------------------------------------------------------------
 // Şablonlar {{WORD}} yer tutucusu kullanır; böylece boşluk tam hedef kelimenin
-// yerine konur ve kelime türüne uygun cümle üretilir.
+// yerine konur ve kelime türüne uygun doğal bir bağlam cümlesi üretilir.
 const SENTENCE_TEMPLATES = {
   noun: [
     {
@@ -248,18 +319,23 @@ const SENTENCE_TEMPLATES = {
       tr: 'Makine basınç altında {{TR}} çalışır.'
     }
   ],
+  // Türü tespit edilemeyen kelimeler için doğal, meta olmayan bağlam cümleleri
   unknown: [
     {
-      en: 'The word "{{WORD}}" appeared several times in the text.',
-      tr: 'Metinde "{{TR}}" kelimesi birkaç kez geçti.'
+      en: 'We discussed the {{WORD}} in detail during the lesson.',
+      tr: 'Derste {{TR}} konusunu ayrıntılı olarak tartıştık.'
     },
     {
-      en: 'Try to use "{{WORD}}" in a sentence of your own.',
-      tr: '"{{TR}}" kelimesini kendi cümlenizde kullanmayı deneyin.'
+      en: 'She mentioned the {{WORD}} while explaining her idea.',
+      tr: 'Fikrini açıklarken {{TR}} konusundan bahsetti.'
     },
     {
-      en: 'We discussed the meaning of "{{WORD}}" in class.',
-      tr: 'Sınıfta "{{TR}}" kelimesinin anlamını tartıştık.'
+      en: 'The {{WORD}} plays an important role in this context.',
+      tr: 'Bu bağlamda {{TR}} önemli bir rol oynar.'
+    },
+    {
+      en: 'He used the {{WORD}} to support his main argument.',
+      tr: 'Ana argümanını desteklemek için {{TR}} kullandı.'
     }
   ]
 };
@@ -298,7 +374,7 @@ function blankOutWord(sentence, word, turkish) {
 /**
  * Bir kelime için örnek cümle ve test sorusu üretir.
  * Önce veritabanındaki example_en/example_tr kullanılır; yoksa türüne uygun
- * akıllı şablon havuzundan üretilir.
+ * doğal şablon havuzundan üretilir.
  */
 function buildExample(word, seedIndex) {
   const en = String(word.english || word.en || '').trim();
@@ -320,7 +396,7 @@ function buildExample(word, seedIndex) {
     }
   }
 
-  // 2. Türüne uygun şablon havuzundan üret
+  // 2. Türüne uygun şablon havuzundan doğal cümle üret
   const pool = SENTENCE_TEMPLATES[pos] || SENTENCE_TEMPLATES.unknown;
   const template = pool[seedIndex % pool.length];
   const example_en = template.en.replace(/\{\{WORD\}\}/g, en);
@@ -333,7 +409,7 @@ function buildExample(word, seedIndex) {
 // ---------------------------------------------------------------------------
 // 4. Akıllı çeldirici üretimi ve 5 şıklı test
 // ---------------------------------------------------------------------------
-function buildOptions(target, pool, levelWords) {
+function buildOptions(target, levelWords, distractorPool) {
   const targetEn = normalizeWord(target.english);
   const targetPos = detectPos(target);
 
@@ -349,10 +425,10 @@ function buildOptions(target, pool, levelWords) {
     return out;
   };
 
-  // Önce aynı seviye + aynı kelime türü, sonra aynı tür (genel havuz)
+  // Öncelik sırası: aynı seviye + aynı tür -> aynı tür (tüm havuz) -> tüm havuz
   const sameLevelSamePos = dedupe(levelWords.filter(w => detectPos(w) === targetPos));
-  const poolSamePos = dedupe(pool.filter(w => detectPos(w) === targetPos));
-  const poolAnyPos = dedupe(pool);
+  const poolSamePos = dedupe(distractorPool.filter(w => detectPos(w) === targetPos));
+  const poolAnyPos = dedupe(distractorPool);
 
   const picked = [];
   const tryFill = (source) => {
@@ -367,14 +443,6 @@ function buildOptions(target, pool, levelWords) {
   tryFill(sameLevelSamePos);
   if (picked.length < OPTION_COUNT - 1) tryFill(poolSamePos);
   if (picked.length < OPTION_COUNT - 1) tryFill(poolAnyPos);
-
-  // Aşırı küçük havuzlar için son çare
-  const fallbacks = ['concept', 'method', 'result', 'process', 'value'];
-  let fi = 0;
-  while (picked.length < OPTION_COUNT - 1 && fi < fallbacks.length) {
-    const candidate = fallbacks[fi++];
-    if (candidate !== targetEn) picked.push({ english: candidate });
-  }
 
   const optionsRaw = fisherYates([
     { text: target.english, correct: true },
@@ -392,10 +460,10 @@ function buildOptions(target, pool, levelWords) {
 }
 
 /**
- * Seçilmiş kelimelerden tam ders nesnesi (öğrenme + test) üretir.
- * Test sorularının sırası öğrenme sırasından bağımsız olarak karıştırılır.
+ * Seçilmiş kelimelerden tam ders nesnesi (kartlar + test) üretir.
+ * Test sorularının sırası kart sırasından bağımsız olarak karıştırılır.
  */
-function buildLesson(selectedWords, pool, levelNumber) {
+function buildLesson(selectedWords, distractorPool, levelNumber, totalLevels) {
   const examples = selectedWords.map((w, i) => buildExample(w, i));
 
   const wordsData = selectedWords.map((w, i) => ({
@@ -409,13 +477,13 @@ function buildLesson(selectedWords, pool, levelNumber) {
     example_tr: examples[i].example_tr
   }));
 
-  // Fisher-Yates: test soruları öğrenme sırasıyla aynı olmamalı
+  // Fisher-Yates: test soruları kart sırasıyla aynı olmamalı
   const quizOrder = fisherYates(selectedWords.map((w, i) => i));
 
   const quizData = quizOrder.map((originalIdx, qIdx) => {
     const word = selectedWords[originalIdx];
     const example = examples[originalIdx];
-    const { options, correct_answer } = buildOptions(word, pool, selectedWords);
+    const { options, correct_answer } = buildOptions(word, selectedWords, distractorPool);
     return {
       question_number: qIdx + 1,
       sentence: example.question,
@@ -428,13 +496,19 @@ function buildLesson(selectedWords, pool, levelNumber) {
     };
   });
 
-  return { level_number: levelNumber, words_data: wordsData, quiz_data: quizData };
+  return {
+    level_number: levelNumber,
+    total_levels: totalLevels || LEVEL_COUNT,
+    words_data: wordsData,
+    quiz_data: quizData
+  };
 }
 
 // ---------------------------------------------------------------------------
 // 5. Tekrarsız kelime seçimi (zorlu kelime öncelikli)
 // ---------------------------------------------------------------------------
-function selectSessionWords(pool, completedSet, wrongCounts) {
+function selectSessionWords(pool, completedSet, wrongCounts, size) {
+  const limit = size || LEVEL_SIZE;
   const weightFn = (word) => {
     const key = normalizeWord(word.english);
     const wc = Number((wrongCounts && wrongCounts[key]) || word.wrongCount || 0);
@@ -443,12 +517,12 @@ function selectSessionWords(pool, completedSet, wrongCounts) {
 
   const unseen = pool.filter(w => !completedSet.has(normalizeWord(w.english)));
   if (unseen.length === 0) {
-    // Tüm kelimeler tamamlandı -> döngü sıfırlanır, yeni tur başlar
-    const words = fisherYates(weightedSample(pool, weightFn, LEVEL_SIZE));
+    // Bu seviyedeki tüm kelimeler tamamlandı -> seviye döngüsü sıfırlanır
+    const words = fisherYates(weightedSample(pool, weightFn, limit));
     return { words, poolReset: true };
   }
 
-  const words = fisherYates(weightedSample(unseen, weightFn, LEVEL_SIZE));
+  const words = fisherYates(weightedSample(unseen, weightFn, limit));
   return { words, poolReset: false };
 }
 
@@ -538,13 +612,16 @@ async function enrichWithGemini(words) {
 
 module.exports = {
   LEVEL_SIZE,
+  LEVEL_COUNT,
   OPTION_COUNT,
   PASS_RATIO,
   BLANK,
   normalizeWord,
   fisherYates,
-  calculateDifficulty,
-  buildLevelPlan,
+  chunkBalanced,
+  difficultyScore,
+  classifyDifficultyLevel,
+  buildFiveLevels,
   detectPos,
   buildExample,
   buildOptions,

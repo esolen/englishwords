@@ -1,7 +1,7 @@
 const { getPool, ensureTables, parseBody } = require('../_db');
 const engine = require('./_engine');
 
-const { LEVEL_SIZE, PASS_RATIO, normalizeWord } = engine;
+const { LEVEL_SIZE, LEVEL_COUNT, PASS_RATIO, normalizeWord } = engine;
 
 // ---------------------------------------------------------------------------
 // Veritabanı yardımcıları
@@ -58,38 +58,63 @@ async function fetchWrongCounts(pool, userId) {
   return counts;
 }
 
+// completed_word_ids JSONB alanını { seviye: [id, ...] } yapısına normalize eder.
+// Eski kurulumlardaki düz dizi biçimi (Seviye 1) ile de uyumludur.
+function parseLevelCompleted(raw) {
+  const result = {};
+  for (let i = 1; i <= LEVEL_COUNT; i++) result[i] = [];
+
+  if (Array.isArray(raw)) {
+    result[1] = raw.map(normalizeWord).filter(Boolean);
+    return result;
+  }
+  if (raw && typeof raw === 'object') {
+    for (let i = 1; i <= LEVEL_COUNT; i++) {
+      const val = raw[i] || raw[String(i)];
+      if (Array.isArray(val)) result[i] = val.map(normalizeWord).filter(Boolean);
+    }
+  }
+  return result;
+}
+
 async function getLessonProgress(pool, userId) {
   const res = await pool.query(
     'SELECT id, level_number, completed_word_ids, current_cycle FROM lesson_progress WHERE user_id = $1',
     [userId]
   );
+  let row;
   if (res.rows.length > 0) {
-    const row = res.rows[0];
-    return {
-      id: row.id,
-      level_number: row.level_number || 1,
-      completed_word_ids: Array.isArray(row.completed_word_ids) ? row.completed_word_ids : [],
-      current_cycle: row.current_cycle || 1
-    };
+    row = res.rows[0];
+  } else {
+    const inserted = await pool.query(
+      `INSERT INTO lesson_progress (user_id, level_number, completed_word_ids, current_cycle)
+       VALUES ($1, 1, '{}'::jsonb, 1)
+       ON CONFLICT (user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+       RETURNING id, level_number, completed_word_ids, current_cycle`,
+      [userId]
+    );
+    row = inserted.rows[0];
   }
-  const inserted = await pool.query(
-    `INSERT INTO lesson_progress (user_id, level_number, completed_word_ids, current_cycle)
-     VALUES ($1, 1, '[]'::jsonb, 1)
-     ON CONFLICT (user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
-     RETURNING id, level_number, completed_word_ids, current_cycle`,
-    [userId]
-  );
-  const row = inserted.rows[0];
+
   return {
     id: row.id,
-    level_number: row.level_number || 1,
-    completed_word_ids: Array.isArray(row.completed_word_ids) ? row.completed_word_ids : [],
+    level_number: Math.min(Math.max(1, row.level_number || 1), LEVEL_COUNT),
+    level_completed: parseLevelCompleted(row.completed_word_ids),
     current_cycle: row.current_cycle || 1
   };
 }
 
+async function saveLessonProgress(pool, userId, levelNumber, levelCompleted, cycle) {
+  await pool.query(
+    `UPDATE lesson_progress
+        SET level_number = $1, completed_word_ids = $2, current_cycle = $3, updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $4`,
+    [levelNumber, JSON.stringify(levelCompleted), cycle, userId]
+  );
+}
+
 // ---------------------------------------------------------------------------
-// GET: Dinamik ders üretimi
+// GET: Dinamik ders üretimi (5 seviyeli)
 // ---------------------------------------------------------------------------
 async function handleGet(req, res, pool) {
   const userId = req.query.user_id ? parseInt(req.query.user_id, 10) : null;
@@ -106,6 +131,7 @@ async function handleGet(req, res, pool) {
       success: true,
       lesson: null,
       total_words: 0,
+      total_levels: LEVEL_COUNT,
       error: 'Henüz kelime eklemediniz. Lütfen önce kelime havuzunuza kelime ekleyin.'
     });
   }
@@ -115,7 +141,8 @@ async function handleGet(req, res, pool) {
   const baseMeta = {
     study_only: studyOnly,
     total_words: allPool.length,
-    pool_words: activePool.length
+    pool_words: activePool.length,
+    total_levels: LEVEL_COUNT
   };
 
   if (activePool.length === 0) {
@@ -129,33 +156,38 @@ async function handleGet(req, res, pool) {
     });
   }
 
-  // Seviye planı (10'arlı gruplar) ve tamamlanan kelimeler
-  const plan = engine.buildLevelPlan(activePool);
-  const totalLevels = plan.length;
+  // Otomatik zorluk sınıflandırması ile TAM 5 seviye
+  const levels = engine.buildFiveLevels(activePool);
 
   const progress = await getLessonProgress(pool, userId);
-  const completedSet = new Set(progress.completed_word_ids.map(normalizeWord));
   const wrongCounts = await fetchWrongCounts(pool, userId);
 
-  // İstenen seviyeyi sınırla; kullanıcının kayıtlı seviyesi de dikkate alınır
-  const effectiveLevel = Math.min(Math.max(1, requestedLevel || progress.level_number || 1), totalLevels);
-  const levelWords = plan[effectiveLevel - 1].words;
+  // İstenen seviyeyi 1..5 aralığına sınırla
+  const effectiveLevel = Math.min(Math.max(1, requestedLevel || progress.level_number || 1), LEVEL_COUNT);
+  const levelWords = levels[effectiveLevel - 1].words;
 
-  // Tekrarsız, zorlu kelime öncelikli seçim
-  const selection = engine.selectSessionWords(levelWords, completedSet, wrongCounts);
+  if (levelWords.length === 0) {
+    return res.status(200).json({
+      success: true,
+      lesson: null,
+      ...baseMeta,
+      user_level: progress.level_number,
+      error: `Seviye ${effectiveLevel} için kelime bulunamadı. Diğer seviyeleri deneyin veya havuza kelime ekleyin.`
+    });
+  }
 
-  // Tüm kelimeler tamamlandıysa yeni döngü başlat (tamamlananları sıfırla)
+  // Seviyeye özel tamamlanan kelimeler
+  const completedSet = new Set(progress.level_completed[effectiveLevel] || []);
+
+  // Tekrarsız, zorlu kelime öncelikli seçim (bu seviyenin havuzundan)
+  const selection = engine.selectSessionWords(levelWords, completedSet, wrongCounts, LEVEL_SIZE);
+
+  // Bu seviyedeki tüm kelimeler tamamlandıysa seviye döngüsü sıfırlanır
   let poolReset = selection.poolReset;
   if (poolReset) {
-    const resetIds = levelWords.map(w => normalizeWord(w.english));
-    const remaining = progress.completed_word_ids.filter(id => !resetIds.includes(normalizeWord(id)));
-    await pool.query(
-      `UPDATE lesson_progress
-          SET completed_word_ids = $1, current_cycle = current_cycle + 1, updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $2`,
-      [JSON.stringify(remaining), userId]
-    );
+    progress.level_completed[effectiveLevel] = [];
     progress.current_cycle += 1;
+    await saveLessonProgress(pool, userId, progress.level_number, progress.level_completed, progress.current_cycle);
   }
 
   const selectedWords = selection.words;
@@ -163,24 +195,27 @@ async function handleGet(req, res, pool) {
     return res.status(200).json({ success: true, lesson: null, ...baseMeta, error: 'Ders için uygun kelime bulunamadı.' });
   }
 
-  // Örnek cümleler: Gemini varsa dinamik üret, yoksa şablon havuzuna düş
+  // Örnek cümleler: Gemini varsa dinamik üret, yoksa doğal şablon havuzuna düş
   await engine.enrichWithGemini(selectedWords);
 
-  const lesson = engine.buildLesson(selectedWords, activePool, effectiveLevel);
-
-  const warning = (studyOnly && activePool.length < LEVEL_SIZE)
-    ? `Özel listenizde yalnızca ${activePool.length} kelime var. Mini ders oluşturuldu; tam ders için en az ${LEVEL_SIZE} kelime seçin.`
-    : null;
+  const lesson = engine.buildLesson(selectedWords, activePool, effectiveLevel, LEVEL_COUNT);
 
   const isMini = selectedWords.length < LEVEL_SIZE;
+  const warning = (studyOnly && activePool.length < LEVEL_SIZE)
+    ? `Özel listenizde yalnızca ${activePool.length} kelime var. Mini ders oluşturuldu; tam ders için en az ${LEVEL_SIZE} kelime seçin.`
+    : (levelWords.length < LEVEL_SIZE
+      ? `Seviye ${effectiveLevel} havuzunda ${levelWords.length} kelime var. Mini ders oluşturuldu.`
+      : null);
+
+  const completedThisLevel = (progress.level_completed[effectiveLevel] || []).length;
 
   return res.status(200).json({
     success: true,
     ...baseMeta,
     user_level: progress.level_number,
-    total_levels: totalLevels,
-    completed_count: progress.completed_word_ids.length,
-    completed_word_ids: progress.completed_word_ids,
+    completed_count: completedThisLevel,
+    completed_word_ids: progress.level_completed[effectiveLevel] || [],
+    level_words_total: levelWords.length,
     current_cycle: progress.current_cycle,
     pool_reset: poolReset,
     is_mini: isMini,
@@ -194,12 +229,34 @@ async function handleGet(req, res, pool) {
 }
 
 // ---------------------------------------------------------------------------
-// POST: Ders sonucu, ilerleme ve zorlu kelime kaydı
+// POST: Ders sonucu / seviye ilerlemesi / sıfırlama
 // ---------------------------------------------------------------------------
 async function handlePost(req, res, pool) {
   const body = parseBody(req);
+  const action = String(body.action || 'complete').toLowerCase();
+
   const userId = body.user_id ? parseInt(body.user_id, 10) : null;
-  const completedLevel = body.level_number ? parseInt(body.level_number, 10) : 1;
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'user_id gereklidir.' });
+  }
+
+  // --- Sıfırlama: tüm seviye ilerlemesini temizle, yeni tura başla ---
+  if (action === 'reset') {
+    await getLessonProgress(pool, userId);
+    const emptyCompleted = {};
+    for (let i = 1; i <= LEVEL_COUNT; i++) emptyCompleted[i] = [];
+    await saveLessonProgress(pool, userId, 1, emptyCompleted, 1);
+    return res.status(200).json({
+      success: true,
+      reset: true,
+      new_level: 1,
+      completed_count: 0,
+      message: 'İlerleme sıfırlandı. Yeni tura Seviye 1\'den başlayabilirsiniz.'
+    });
+  }
+
+  // --- Sonuç işleme ---
+  const completedLevel = Math.min(Math.max(1, body.level_number ? parseInt(body.level_number, 10) : 1), LEVEL_COUNT);
   const correctCount = Number.isFinite(body.correct_count) ? body.correct_count : 0;
   const totalQuestions = Number.isFinite(body.total_questions) && body.total_questions > 0
     ? body.total_questions
@@ -207,62 +264,49 @@ async function handlePost(req, res, pool) {
   const completedWords = Array.isArray(body.completed_words) ? body.completed_words : [];
   const studyOnly = body.study_only === true;
 
-  if (!userId) {
-    return res.status(401).json({ success: false, error: 'user_id gereklidir.' });
-  }
-
   const ratio = totalQuestions > 0 ? correctCount / totalQuestions : 0;
   const passed = ratio >= PASS_RATIO; // %80 eşiği
 
   // Yanlış cevaplanan kelimelerin "Zorlu Kelimeler" istatistiği istemci tarafından
   // api/statistics/update.js üzerinden +1 olarak işlenir (tek kaynak).
 
-  // 1. İlerleme kaydını getir
   const progress = await getLessonProgress(pool, userId);
-  const completedSet = new Set(progress.completed_word_ids.map(normalizeWord));
+  const levelCompleted = progress.level_completed;
+  const completedSet = new Set(levelCompleted[completedLevel] || []);
 
-  // 2. Sadece %80+ başarıda kelimeler "tamamlandı" olarak işaretlenir
+  // Sadece %80+ başarıda kelimeler "tamamlandı" olarak işaretlenir
   if (passed) {
     completedWords
       .map(w => normalizeWord(typeof w === 'string' ? w : (w && w.english)))
       .filter(Boolean)
       .forEach(w => completedSet.add(w));
   }
+  levelCompleted[completedLevel] = Array.from(completedSet);
 
-  // 3. Havuzun tamamı tamamlandı mı? (Yeni döngü kontrolü)
+  // Bu seviyenin tamamı bitti mi?
   const activePool = await fetchWordPool(pool, userId, studyOnly);
-  const poolKeys = activePool.map(w => normalizeWord(w.english));
-  const allComplete = poolKeys.length > 0 && poolKeys.every(key => completedSet.has(key));
-
-  let nextCycle = progress.current_cycle;
-  let completedList = Array.from(completedSet);
-
-  if (passed && allComplete) {
-    // Tüm kelimeler tamamlandı -> tamamlananları sıfırla, yeni tur başlat
-    completedList = [];
-    nextCycle = progress.current_cycle + 1;
-  }
-
-  // 5. Seviye ilerlemesi (yalnızca başarılı testte bir üst seviye açılır)
   const planSource = activePool.length > 0 ? activePool : await fetchWordPool(pool, userId, false);
-  const plan = engine.buildLevelPlan(planSource);
-  const totalLevels = Math.max(1, plan.length);
+  const levels = engine.buildFiveLevels(planSource);
+  const levelWords = levels[completedLevel - 1] ? levels[completedLevel - 1].words : [];
+  const levelKeys = levelWords.map(w => normalizeWord(w.english));
+  const levelComplete = levelKeys.length > 0 && levelKeys.every(key => completedSet.has(key));
+
+  // Seviye ilerlemesi: yalnızca başarılı testte bir üst seviye açılır
   let newLevel = progress.level_number;
   let leveledUp = false;
-  if (passed && !allComplete) {
-    const candidate = Math.min(completedLevel + 1, totalLevels);
+  if (passed) {
+    const candidate = Math.min(completedLevel + 1, LEVEL_COUNT);
     newLevel = Math.max(candidate, progress.level_number);
     leveledUp = newLevel > progress.level_number;
   }
 
-  await pool.query(
-    `UPDATE lesson_progress
-        SET level_number = $1, completed_word_ids = $2, current_cycle = $3, updated_at = CURRENT_TIMESTAMP
-      WHERE user_id = $4`,
-    [newLevel, JSON.stringify(completedList), nextCycle, userId]
-  );
+  // Tüm seviyeler tamamlandı mı? (yalnızca son seviye tamamen bitince)
+  const allLevelsComplete = passed && completedLevel === LEVEL_COUNT && levelComplete;
+
+  await saveLessonProgress(pool, userId, newLevel, levelCompleted, progress.current_cycle);
 
   // user_statistics ile de senkronize tut (genel istatistik / yedek)
+  const completedFlat = Object.values(levelCompleted).flat();
   const stat = await pool.query(
     'SELECT id FROM user_statistics WHERE user_id = $1 AND game_type = $2 ORDER BY id ASC LIMIT 1',
     [userId, 'lessons']
@@ -272,31 +316,40 @@ async function handlePost(req, res, pool) {
       `UPDATE user_statistics
           SET current_level = $1, completed_word_ids = $2, updated_at = CURRENT_TIMESTAMP
         WHERE id = $3`,
-      [newLevel, JSON.stringify(completedList), stat.rows[0].id]
+      [newLevel, JSON.stringify(completedFlat), stat.rows[0].id]
     );
   } else {
     await pool.query(
       `INSERT INTO user_statistics (user_id, game_type, score, current_level, completed_word_ids)
        VALUES ($1, $2, $3, $4, $5)`,
-      [userId, 'lessons', correctCount, newLevel, JSON.stringify(completedList)]
+      [userId, 'lessons', correctCount, newLevel, JSON.stringify(completedFlat)]
     );
+  }
+
+  let message;
+  if (!passed) {
+    message = 'Başarı oranı %80 altında kaldı. Eksik kelimeleri tekrar edin.';
+  } else if (allLevelsComplete) {
+    message = 'Tebrikler! Tüm seviyeleri tamamladınız. Yeni tura başlayabilirsiniz.';
+  } else if (levelComplete) {
+    message = `Seviye ${completedLevel} tamamlandı! Seviye ${newLevel} açıldı.`;
+  } else {
+    message = 'Tebrikler! Testi geçtiniz.';
   }
 
   return res.status(200).json({
     success: true,
     passed,
     leveled_up: leveledUp,
+    level_complete: levelComplete,
+    all_levels_complete: allLevelsComplete,
     new_level: newLevel,
-    total_levels: totalLevels,
-    all_complete: passed && allComplete,
-    current_cycle: nextCycle,
-    completed_count: completedList.length,
-    pool_reset: passed && allComplete,
-    message: passed
-      ? (allComplete
-        ? 'Tüm kelimeleri tamamladınız, yeni döngü başlatılıyor.'
-        : 'Tebrikler! Seviyeyi geçtiniz.')
-      : 'Başarı oranı %80 altında kaldı. Eksik kelimeleri tekrar edin.'
+    completed_level: completedLevel,
+    total_levels: LEVEL_COUNT,
+    completed_count: (levelCompleted[completedLevel] || []).length,
+    completed_word_ids: levelCompleted[completedLevel] || [],
+    pool_reset: false,
+    message
   });
 }
 
