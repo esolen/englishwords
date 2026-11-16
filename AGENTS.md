@@ -59,3 +59,38 @@ Vercel serverless fonksiyonları (`api/*.js`) + Neon PostgreSQL backend.
 
 - `hwords-main` dosyası eski commit'lerde vardı, çalışma ağacından kaldırılmıştır; geri eklemeyin.
 - Türkçe `I/İ` dönüşümleri için `enUp`/`enLow` (İngilizce locale) kullanın; `toUpperCase()` yanlış sonuç verir.
+
+## Kelime yükleme sağlamlığı (arayüz boş kalma hatası)
+
+- **Kök neden:** Tek bir bozuk DB satırı (boş `english`/`turkish`) `WordStore.setWords → notifyUpdate →
+  renderWordsTable` zincirinde `undefined.toLowerCase()` hatası fırlatıyordu. `fetchUserWords` catch'i
+  ise hatayı "çekme hatası" sanıp `WordStore.setWords([])` ile **tüm listeyi siliyordu** → arayüz boş.
+- **Kural:** `WordStore.setWords()` bozuk/eksik alanlı kayıtları ayıklar; `notifyUpdate()` render hatasını
+  yutar (state korunur); `fetchUserWords` yalnızca **kelimeler çekilemezse** listeyi temizler
+  (`fetched` bayrağı). Arayüzdeki her DOM erişimi `if (el)` ile korunur.
+- Tüm `w.en`/`w.tr` erişimlerinde `String(w.en || '')` kullanın; DB'den `null/undefined` gelebilir.
+
+## Global Kelime Türü Filtresi
+
+- `WordStore.posFilter` ('all' varsayılan) → `getWords()` içinde uygulanır. **'all' iken filtreleme yok.**
+- Eşleştirme `.toLowerCase()` ile büyük/küçük harf duyarsızdır; tür tespiti `resolveWordPos()` ile.
+- localStorage anahtarı: `global_pos_filter_v1`. UI: `#global-pos-filter` (dashboard başlığı).
+
+## Çoktan Seçmeli Test (multiple-choice)
+
+- 15 soruluk oturum; `seenSessionWordIds` ile görülmüş kelimeler atlanır (Diğer Teste Geç = 0 kesişim).
+- Ayarlar `QuizSettings` (`mc_quiz_settings_v1`): yön (`en-to-tr`/`tr-to-en`/`mixed`) + klavye kısayolları.
+- Çeldiriciler `pickDistractorWords()` ile aynı `resolveWordPos` türünden seçilir (yoksa diğerlerinden).
+- Klavye dinleyicisi constructor'da eklenir, `destroy()`'da kaldırılır (bellek sızıntısı yok).
+
+## Eşleştirme (matching)
+
+- Zorluk: kolay 6 / orta 10 / zor 14 çift. Rekorlar `matching_best_times_v1` (zorluk bazlı).
+- Kronometre `_startTimer`/`_stopTimer`; `destroy()` timer + `_matchTimeout` temizler.
+- İngilizce karta tıklayınca `AudioService.speak()`; doğru → yeşil kilit, yanlış → `shakeWrong`.
+
+## Dashboard kart düzeni
+
+- `DashboardLayout` (`dashboard_card_order`, `dashboard_locked_cards`) + `DashboardLayoutUI` (DnD + touch).
+- Düzenleme modu kapalıyken kart tıklaması normal çalışır; açıkken `editing` guard tıklamayı engeller.
+- `DEFAULT_CARD_ORDER` data-game sırasıyla uyumlu tutulmalı (sıfırlama buna göre dizilir).
