@@ -27,7 +27,7 @@
   <!-- Tesseract.js (El Yazısı OCR Motoru) CDN -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <!-- Yerel Stiller (Cache Busting v=2.0) -->
-  <link rel="stylesheet" href="style.css?v=2.3">
+  <link rel="stylesheet" href="style.css?v=3.0">
   <script>
     tailwind.config = {
       theme: {
@@ -218,7 +218,7 @@
               Kendi Kelimelerinle İngilizce Öğren!
             </h2>
             <p class="text-slate-300 text-sm sm:text-base leading-relaxed mb-4">
-              Yüklediğin kelimeler doğrudan hesabına kaydedilir. 19 farklı oyun ve alıştırma modülüyle kelimeleri kalıcı öğren.
+              Yüklediğin kelimeler doğrudan hesabına kaydedilir. 12 farklı oyun ve alıştırma modülüyle kelimeleri kalıcı öğren.
             </p>
             <div class="flex flex-wrap items-center gap-3">
               <button id="quick-start-btn" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold shadow-lg shadow-brand-500/30 transition transform active:scale-95 text-sm">
@@ -311,11 +311,7 @@
             </button>
             <button class="category-tab-btn px-4 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 font-medium text-xs whitespace-nowrap border border-slate-700 transition flex items-center gap-1.5" data-filter="speed">
               <i data-lucide="timer" class="w-3.5 h-3.5 text-rose-400"></i>
-              <span>Hız & Arcade</span>
-            </button>
-            <button class="category-tab-btn px-4 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 font-medium text-xs whitespace-nowrap border border-slate-700 transition flex items-center gap-1.5" data-filter="extra">
-              <i data-lucide="gamepad-2" class="w-3.5 h-3.5 text-purple-400"></i>
-              <span>Ekstra Mini Oyunlar</span>
+              <span>Hız & Refleks</span>
             </button>
           </div>
         </div>
@@ -472,32 +468,16 @@
             </div>
           </div>
 
-          <!-- 11. Düşen Kelimeler -->
-          <div class="game-card group" data-game="falling-words">
-            <div class="game-card-icon bg-sky-500/10 text-sky-400 group-hover:bg-sky-500 group-hover:text-white">
-              <i data-lucide="cloud-rain" class="w-6 h-6"></i>
+          <!-- 11. Kelime Bombası (Bağımsız Modül) -->
+          <div class="game-card group border-rose-500/40 bg-gradient-to-br from-slate-900 via-rose-950/25 to-slate-900 hover:border-rose-400 shadow-lg shadow-rose-500/10" data-game="word-bomb">
+            <div class="game-card-icon bg-rose-500/10 text-rose-400 group-hover:bg-rose-500 group-hover:text-white">
+              <i data-lucide="bomb" class="w-6 h-6"></i>
             </div>
-            <h4 class="font-display font-bold text-lg text-white group-hover:text-sky-300 transition">Düşen Kelimeler</h4>
-            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Yukarıdan aşağıya doğru süzülen İngilizce kelimeleri yere çarpmadan doğru cevapla patlat.</p>
+            <h4 class="font-display font-bold text-lg text-white group-hover:text-rose-300 transition">Kelime Bombası</h4>
+            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Fitil yanıp tükenmeden harfleri doğru sıraya dizerek bombayı etkisiz hâle getir.</p>
             <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
-              <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="arrow-down" class="w-3.5 h-3.5"></i> Arcade</span>
-              <span class="text-xs font-semibold text-sky-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
-            </div>
-          </div>
-
-          <!-- 12. Ekstra Oyunlar (Görsel 2 Modalı) -->
-          <div class="game-card group border-brand-500/50 bg-gradient-to-br from-slate-900 via-brand-950/40 to-slate-900 hover:border-brand-400 shadow-lg shadow-brand-500/10" id="open-extra-games-card">
-            <div class="game-card-icon bg-gradient-to-br from-brand-500 to-indigo-600 text-white shadow-lg shadow-brand-500/30">
-              <i data-lucide="gamepad-2" class="w-6 h-6"></i>
-            </div>
-            <div class="flex items-center justify-between">
-              <h4 class="font-display font-bold text-lg text-white group-hover:text-brand-300 transition">Ekstra Oyunlar</h4>
-              <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-brand-500 text-white">8 Mini Oyun</span>
-            </div>
-            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Wordle, Şerit Koşusu, Kelime Yarışı, Savunma, Bomba, Huni ve Dinleme gibi özel eğlenceli mini oyunlar.</p>
-            <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
-              <span class="text-xs font-medium text-brand-300 flex items-center gap-1"><i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Geniş Koleksiyon</span>
-              <span class="text-xs font-semibold text-brand-400 group-hover:translate-x-1 transition flex items-center gap-1">Keşfet &rarr;</span>
+              <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="timer" class="w-3.5 h-3.5"></i> Refleks &amp; Hız</span>
+              <span class="text-xs font-semibold text-rose-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
             </div>
           </div>
 
@@ -544,119 +524,6 @@
       </section>
 
     </main>
-
-    <!-- Ekstra Oyunlar Modalı (Görsel 2) -->
-    <div id="extra-games-modal" class="modal-backdrop hidden">
-      <div class="modal-container max-w-4xl max-h-[90vh] flex flex-col">
-        <!-- Modal Header -->
-        <div class="flex items-center justify-between p-5 border-b border-slate-800">
-          <div class="flex items-center space-x-3">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-indigo-600 flex items-center justify-center text-white shadow-md">
-              <i data-lucide="gamepad-2" class="w-5 h-5"></i>
-            </div>
-            <div>
-              <h3 class="font-display font-bold text-xl text-white">Ekstra Oyunlar Odası</h3>
-              <p class="text-xs text-slate-400">Veritabanındaki kelimelerle 8 farklı mini oyun macerası</p>
-            </div>
-          </div>
-          <button id="close-extra-games-modal-btn" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition">
-            <i data-lucide="x" class="w-5 h-5"></i>
-          </button>
-        </div>
-
-        <!-- Modal Body (8 Mini Oyun Grid) -->
-        <div class="p-5 overflow-y-auto flex-grow">
-          <!-- Aktif kelime havuzu bilgi şeridi (app.js tarafından güncellenir) -->
-          <div id="arcade-pool-banner" class="hidden mb-4 p-3 rounded-xl bg-brand-950/40 border border-brand-500/30 text-xs text-brand-200 flex items-center gap-2">
-            <i data-lucide="info" class="w-4 h-4 text-brand-400 shrink-0"></i>
-            <span id="arcade-pool-banner-text">Aktif kelime havuzu bilgisi</span>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-
-            <!-- 1. Wordle -->
-            <div class="extra-game-card group" data-mini-game="wordle">
-              <div class="extra-game-icon bg-emerald-500/10 text-emerald-400 group-hover:bg-emerald-500 group-hover:text-white">
-                <i data-lucide="spell-check" class="w-5 h-5"></i>
-              </div>
-              <h4 class="font-display font-bold text-white text-base mt-2 group-hover:text-brand-300">Wordle</h4>
-              <p class="text-slate-400 text-xs mt-1 leading-relaxed">Türkçe ipucu ile İngilizce kelimeyi 6 denemede yeşil/sarı renk ipuçlarıyla tahmin et.</p>
-              <span class="inline-block mt-3 text-xs font-semibold text-brand-400">Oyna &rarr;</span>
-            </div>
-
-            <!-- 2. Şerit Koşusu -->
-            <div class="extra-game-card group" data-mini-game="lane-runner">
-              <div class="extra-game-icon bg-blue-500/10 text-blue-400 group-hover:bg-blue-500 group-hover:text-white">
-                <i data-lucide="milestone" class="w-5 h-5"></i>
-              </div>
-              <h4 class="font-display font-bold text-white text-base mt-2 group-hover:text-blue-300">Şerit Koşusu</h4>
-              <p class="text-slate-400 text-xs mt-1 leading-relaxed">Şeritlerde ilerleyen koşucuyu doğru İngilizce kelimenin olduğu şeride yönlendir.</p>
-              <span class="inline-block mt-3 text-xs font-semibold text-blue-400">Oyna &rarr;</span>
-            </div>
-
-            <!-- 3. Kelime Yarışı -->
-            <div class="extra-game-card group" data-mini-game="word-race">
-              <div class="extra-game-icon bg-amber-500/10 text-amber-400 group-hover:bg-amber-500 group-hover:text-white">
-                <i data-lucide="car" class="w-5 h-5"></i>
-              </div>
-              <h4 class="font-display font-bold text-white text-base mt-2 group-hover:text-amber-300">Kelime Yarışı</h4>
-              <p class="text-slate-400 text-xs mt-1 leading-relaxed">Arabayı doğru kelime tüneline sürerek puanları topla, engellerden kaç.</p>
-              <span class="inline-block mt-3 text-xs font-semibold text-amber-400">Oyna &rarr;</span>
-            </div>
-
-            <!-- 4. Kelime Bombası -->
-            <div class="extra-game-card group" data-mini-game="word-bomb">
-              <div class="extra-game-icon bg-rose-500/10 text-rose-400 group-hover:bg-rose-500 group-hover:text-white">
-                <i data-lucide="bomb" class="w-5 h-5"></i>
-              </div>
-              <h4 class="font-display font-bold text-white text-base mt-2 group-hover:text-rose-300">Kelime Bombası</h4>
-              <p class="text-slate-400 text-xs mt-1 leading-relaxed">Fitil yanıp tükenmeden önce harfleri doğru sıraya dizerek bombayı etkisiz kıl.</p>
-              <span class="inline-block mt-3 text-xs font-semibold text-rose-400">Oyna &rarr;</span>
-            </div>
-
-            <!-- 5. Kelime Patlatma -->
-            <div class="extra-game-card group" data-mini-game="word-pop">
-              <div class="extra-game-icon bg-purple-500/10 text-purple-400 group-hover:bg-purple-500 group-hover:text-white">
-                <i data-lucide="circle-dot" class="w-5 h-5"></i>
-              </div>
-              <h4 class="font-display font-bold text-white text-base mt-2 group-hover:text-purple-300">Kelime Patlatma</h4>
-              <p class="text-slate-400 text-xs mt-1 leading-relaxed">Yüzen baloncuklardaki İngilizce ve Türkçe eşleri art arda tıklayıp patlat.</p>
-              <span class="inline-block mt-3 text-xs font-semibold text-purple-400">Oyna &rarr;</span>
-            </div>
-
-            <!-- 6. Kelime Savunması -->
-            <div class="extra-game-card group" data-mini-game="word-defense">
-              <div class="extra-game-icon bg-red-500/10 text-red-400 group-hover:bg-red-500 group-hover:text-white">
-                <i data-lucide="shield-alert" class="w-5 h-5"></i>
-              </div>
-              <h4 class="font-display font-bold text-white text-base mt-2 group-hover:text-red-300">Kelime Savunması</h4>
-              <p class="text-slate-400 text-xs mt-1 leading-relaxed">Soldan yaklaşan kelime hedeflerini, doğru anlamlarına hızla tıklayarak vur.</p>
-              <span class="inline-block mt-3 text-xs font-semibold text-red-400">Oyna &rarr;</span>
-            </div>
-
-            <!-- 7. Telaffuzlu Huni -->
-            <div class="extra-game-card group" data-mini-game="word-funnel">
-              <div class="extra-game-icon bg-cyan-500/10 text-cyan-400 group-hover:bg-cyan-500 group-hover:text-white">
-                <i data-lucide="filter" class="w-5 h-5"></i>
-              </div>
-              <h4 class="font-display font-bold text-white text-base mt-2 group-hover:text-cyan-300">Telaffuzlu Huni</h4>
-              <p class="text-slate-400 text-xs mt-1 leading-relaxed">Duyduğun kelimenin huniden süzülen harflerini doğru sırada yakala.</p>
-              <span class="inline-block mt-3 text-xs font-semibold text-cyan-400">Oyna &rarr;</span>
-            </div>
-
-            <!-- 8. Gölge Dinleme -->
-            <div class="extra-game-card group" data-mini-game="shadow-listening">
-              <div class="extra-game-icon bg-indigo-500/10 text-indigo-400 group-hover:bg-indigo-500 group-hover:text-white">
-                <i data-lucide="headphones" class="w-5 h-5"></i>
-              </div>
-              <h4 class="font-display font-bold text-white text-base mt-2 group-hover:text-indigo-300">Gölge Dinleme</h4>
-              <p class="text-slate-400 text-xs mt-1 leading-relaxed">İngilizce telaffuzu dikkatle dinle ve duyduğun kelimeyi klavyeyle eksiksiz yaz (Dikte).</p>
-              <span class="inline-block mt-3 text-xs font-semibold text-indigo-400">Oyna &rarr;</span>
-            </div>
-
-          </div>
-        </div>
-      </div>
-    </div>
 
     <!-- Kelime Ekle / Veritabanı Yönetimi Modalı -->
     <div id="word-db-modal" class="modal-backdrop hidden">
@@ -780,7 +647,7 @@
   <!-- Bildirim / Toast Kapsayıcısı -->
   <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
 
-  <!-- Yerel Uygulama Scripti (Cache Busting v=2.0) -->
-  <script src="app.js?v=2.3"></script>
+  <!-- Yerel Uygulama Scripti (Cache Busting v=3.0) -->
+  <script src="app.js?v=3.0"></script>
 </body>
 </html>
