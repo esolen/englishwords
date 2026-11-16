@@ -59,11 +59,9 @@ module.exports = async function handler(req, res) {
         const current = existing.rows[0];
         let currentList = Array.isArray(current.wrong_words) ? current.wrong_words : [];
         if (action === 'remove') {
-          currentList = currentList.filter(w => w.toLowerCase() !== word);
-        } else {
-          if (!currentList.map(w => w.toLowerCase()).includes(word)) {
-            currentList.push(word);
-          }
+          currentList = currentList.filter(w => String(w).toLowerCase() !== word);
+        } else if (!currentList.map(w => String(w).toLowerCase()).includes(word)) {
+          currentList.push(word);
         }
 
         await pool.query(

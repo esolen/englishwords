@@ -32,8 +32,11 @@ module.exports = async function handler(req, res) {
       const english = (w.english || '').trim();
       const turkish = (w.turkish || '').trim();
       const pronunciation = (w.pronunciation || '').trim();
+      const example_en = (w.example_en || '').trim();
+      const example_tr = (w.example_tr || '').trim();
+      const pos = (w.pos || '').trim();
       if (english && turkish) {
-        validWords.push({ english, turkish, pronunciation });
+        validWords.push({ english, turkish, pronunciation, example_en, example_tr, pos });
       }
     }
 
@@ -42,19 +45,21 @@ module.exports = async function handler(req, res) {
     }
 
     // Toplu ekleme için multi-row parameterized INSERT sorgusu oluşturma
-    // ($1, $2, $3, $4), ($1, $5, $6, $7), ...
+    // ($1, $2, $3, $4, $5, $6, $7), ($1, $8, ...), ...
     const valuePlaceholders = [];
     const values = [userId];
     let paramCounter = 2;
 
     for (const w of validWords) {
-      valuePlaceholders.push(`($1, $${paramCounter}, $${paramCounter + 1}, $${paramCounter + 2})`);
-      values.push(w.english, w.turkish, w.pronunciation);
-      paramCounter += 3;
+      valuePlaceholders.push(
+        `($1, $${paramCounter}, $${paramCounter + 1}, $${paramCounter + 2}, $${paramCounter + 3}, $${paramCounter + 4}, $${paramCounter + 5})`
+      );
+      values.push(w.english, w.turkish, w.pronunciation, w.example_en, w.example_tr, w.pos);
+      paramCounter += 6;
     }
 
     const insertQuery = `
-      INSERT INTO user_words (user_id, english, turkish, pronunciation)
+      INSERT INTO user_words (user_id, english, turkish, pronunciation, example_en, example_tr, pos)
       VALUES ${valuePlaceholders.join(', ')}
     `;
 
