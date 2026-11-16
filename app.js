@@ -3110,23 +3110,27 @@ class WordBombGame {
     this.maxCombo = 0;
 
     this.question = null;   // { word, correct, options:[{text,correct}] }
-    this.duration = 8;      // Fitil süresi (saniye)
-    this.remaining = 8;
+    this.duration = 15;     // Fitil süresi (saniye) — başlangıçta seçilir
+    this.remaining = 15;
     this.fuseTimer = null;
     this.locked = false;    // Cevap verildikten sonra kilit
     this.finished = false;
     this.keyboardHandler = null;
+
+    // Fitil süresi seçenekleri (rahat süreler)
+    this.durationOptions = [
+      { sec: 10, label: 'Hızlı', emoji: '⚡', desc: 'Keskin refleks • Zorlu tempo' },
+      { sec: 15, label: 'Normal', emoji: '🔥', desc: 'Dengeli • Önerilen' },
+      { sec: 20, label: 'Uzun', emoji: '⏳', desc: 'Rahat düşünme payı' },
+      { sec: 25, label: 'Rahat', emoji: '🐢', desc: 'En sakin • Acele yok' }
+    ];
+    this.durations = this.durationOptions.map(o => o.sec);
   }
 
   init() {
-    setGameHeader('Kelime Bombası', 'Fitil bitmeden doğru anlamı seç!');
+    setGameHeader('Kelime Bombası', 'Fitil süresini seç ve doğru anlamı yakala!');
     this.finished = false;
     this.locked = false;
-
-    const livesContainer = document.getElementById('game-lives-container');
-    if (livesContainer) livesContainer.classList.remove('hidden');
-    const livesDisplay = document.getElementById('game-lives-display');
-    if (livesDisplay) livesDisplay.textContent = this.lives;
 
     if (!this.pool || this.pool.length < 4) {
       this.renderNoWords();
@@ -3135,6 +3139,68 @@ class WordBombGame {
 
     this.keyboardHandler = (e) => this.onPhysicalKey(e);
     window.addEventListener('keydown', this.keyboardHandler);
+
+    this.renderDurationSelect();
+  }
+
+  // --- Fitil Süresi Seçim Ekranı ---
+  renderDurationSelect() {
+    this.stopFuse();
+    this.showTopFuse(false);
+    updateGameScore(0);
+    const livesContainer = document.getElementById('game-lives-container');
+    if (livesContainer) livesContainer.classList.add('hidden');
+
+    const stage = this.stage;
+    if (!stage) return;
+    stage.innerHTML = `
+      <div class="w-full max-w-xl flex flex-col items-center text-center animate-pop">
+        <div class="w-16 h-16 rounded-2xl bg-rose-500/20 text-rose-400 mx-auto flex items-center justify-center mb-4">
+          <i data-lucide="bomb" class="w-8 h-8"></i>
+        </div>
+        <h3 class="text-2xl font-bold font-display text-white mb-1">Fitil Süresini Seç</h3>
+        <p class="text-slate-400 text-sm mb-6">Fitil yanıp tükenmeden doğru Türkçe anlamı 4 şık arasından seç.</p>
+
+        <div class="w-full grid grid-cols-2 gap-3 sm:gap-4">
+          ${this.durationOptions.map(o => `
+            <button class="bomb-duration-btn group p-5 rounded-2xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 hover:border-rose-500/60 transition flex flex-col items-center gap-1 shadow-lg" data-duration="${o.sec}">
+              <span class="text-3xl leading-none">${o.emoji}</span>
+              <span class="text-2xl font-extrabold font-display text-white group-hover:text-rose-300 transition">${o.sec} sn</span>
+              <span class="text-xs font-semibold uppercase tracking-widest text-rose-400">${o.label}</span>
+              <span class="text-[11px] text-slate-400 mt-1">${o.desc}</span>
+            </button>
+          `).join('')}
+        </div>
+
+        <button onclick="closeGame()" class="mt-6 px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700 transition">Menüye Dön</button>
+      </div>`;
+    if (window.lucide) window.lucide.createIcons();
+    stage.querySelectorAll('.bomb-duration-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sec = parseInt(btn.getAttribute('data-duration'), 10);
+        AudioService.playSfx('click');
+        this.startGame(sec);
+      });
+    });
+  }
+
+  // --- Seçilen Fitil Süresi ile Oyunu Başlat ---
+  startGame(seconds) {
+    this.duration = seconds;
+    this.remaining = seconds;
+    this.lives = this.maxLives;
+    this.score = 0;
+    this.correctCount = 0;
+    this.wrongCount = 0;
+    this.combo = 0;
+    this.maxCombo = 0;
+    this.finished = false;
+    this.locked = false;
+
+    const livesContainer = document.getElementById('game-lives-container');
+    if (livesContainer) livesContainer.classList.remove('hidden');
+    const livesDisplay = document.getElementById('game-lives-display');
+    if (livesDisplay) livesDisplay.textContent = this.lives;
 
     this.renderFrame();
     this.nextQuestion();
