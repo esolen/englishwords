@@ -95,4 +95,33 @@ Vercel serverless fonksiyonları (`api/*.js`) + Neon PostgreSQL backend.
 
 - `DashboardLayout` (`dashboard_card_order`, `dashboard_locked_cards`) + `DashboardLayoutUI` (DnD + touch).
 - Düzenleme modu kapalıyken kart tıklaması normal çalışır; açıkken `editing` guard tıklamayı engeller.
-- `DEFAULT_CARD_ORDER` data-game sırasıyla uyumlu tutulmalı (sıfırlama buna göre dizilir).
+- `DEFAULT_CARD_ORDER` **index.html DOM sırasıyla birebir** olmalı (12 kart): flashcards, multiple-choice,
+  difficult-words, fill-blanks, word-bomb, time-attack, hangman, step-by-step-lessons, matching,
+  true-false, handwriting, pronunciation. `resetLayout()` bu diziye göre sıralar.
+
+## Çalışma Havuzu Filtreleri (Özel + Zorlu)
+
+- `WordStore` iki bağımsız filtre tutar: `useOnlyStudyList` ("Sadece Seçtiğim Kelimelerle Çalış")
+  ve `useOnlyDifficult` ("Sadece Zorlu Kelimelerle Çalış"). İkisi **birlikte** açıkken havuz
+  **birleşim (union)** olur (ikisi de değilse tüm kelimeler).
+- `getWords()` → aktif filtreli havuz (soru/oyun kelimeleri buradan gelir).
+- `getDistractorPool()` → filtrelerden bağımsız tüm geçerli kelimeler (durum güncelleme, kelime arama).
+- `getQuizDistractorPool()` → önce filtreli havuz, yetmezse genel havuzla tamamlanır (çeldirici üretimi).
+- `prioritizedShuffle(list)` → zorlu kelimeleri (wrongCount>0) havuzun önüne alır; filtre kapalıyken
+  bile zorlu kelimeler oyunlarda öne çıksın. Tüm oyun constructor'larında `shuffleArray` yerine kullanılır.
+- Çeldirici/soru üretiminde asla `getWords()` (filtreli) yerine sabit havuz kullanmayın.
+
+## "Bunu Öğrendim (Zorlu Listesinden Çıkar)" butonu
+
+- `hardWordLearnButtonHtml(word)` yalnızca kelime zorlu ise buton HTML'i döner; `isWordInHardList()` kontrol eder.
+- Tıklama → `learnHardWordHandler` → `WordStore.learnHardWord(word)`: yerel `wrongCount=0` +
+  `localStorage.learned_hard_words_v1` (çevrimdışı yedek) + `/api/words/wrong` remove.
+- Tüm oyunlara ve `StepByStepLessonsGame` (kart + test aşaması) enjekte edilmiştir. DifficultWordsGame'in
+  kendi butonu (`#diff-mastered-btn`) da `learnHardWord` kullanır.
+
+## Kolaydan Zora (Dersler) API
+
+- GET `/api/lessons` → `study_only` + `difficult_only` (birleşim) destekler. Seçili havuz < 10 kelime ise
+  **mini ders** (tüm aktif havuz) üretilir ve `warning`/`is_mini` döner.
+- İstenen seviye boşsa kelime içeren en yakın seviyeye düşülür (`effectiveLevel` fallback).
+- POST `/api/lessons` → `difficult_only` gövde alanını kabul eder; seviye tamamlanması aktif havuzdan hesaplanır.

@@ -115,6 +115,33 @@ async function saveLessonProgress(pool, userId, levelNumber, levelCompleted, cyc
   );
 }
 
+// Aktif ders havuzunu döndürür. studyOnly/difficultOnly bayraklarına göre
+// özel çalışma listesi ve/veya zorlu (yanlış cevaplanan) kelimelerle sınırlar.
+// İkisi birlikte aktifse BİRLEŞİM (union) havuzu kullanılır.
+async function fetchActivePool(pool, userId, { studyOnly = false, difficultOnly = false } = {}) {
+  const all = await fetchWordPool(pool, userId, false);
+  if (!studyOnly && !difficultOnly) return { all, active: all };
+
+  const study = studyOnly ? await fetchWordPool(pool, userId, true) : null;
+
+  let difficult = null;
+  if (difficultOnly) {
+    const wrongCounts = await fetchWrongCounts(pool, userId);
+    difficult = all.filter(w => (wrongCounts[normalizeWord(w.english)] || 0) > 0);
+  }
+
+  let active;
+  if (studyOnly && difficultOnly) {
+    const byId = new Map();
+    [...study, ...difficult].forEach(w => byId.set(String(w.id), w));
+    active = Array.from(byId.values());
+  } else {
+    active = studyOnly ? study : difficult;
+  }
+
+  return { all, active: active || [] };
+}
+
 // ---------------------------------------------------------------------------
 // GET: Dinamik ders üretimi (5 seviyeli)
 // ---------------------------------------------------------------------------
@@ -122,12 +149,13 @@ async function handleGet(req, res, pool) {
   const userId = req.query.user_id ? parseInt(req.query.user_id, 10) : null;
   const requestedLevel = req.query.level ? parseInt(req.query.level, 10) : 1;
   const studyOnly = req.query.study_only === 'true' || req.query.study_only === '1';
+  const difficultOnly = req.query.difficult_only === 'true' || req.query.difficult_only === '1';
 
   if (!userId) {
     return res.status(401).json({ success: false, error: 'user_id gereklidir.', lesson: null });
   }
 
-  const allPool = await fetchWordPool(pool, userId, false);
+  const { all: allPool, active: activePool } = await fetchActivePool(pool, userId, { studyOnly, difficultOnly });
   if (allPool.length === 0) {
     return res.status(200).json({
       success: true,
@@ -138,24 +166,24 @@ async function handleGet(req, res, pool) {
     });
   }
 
-  const activePool = studyOnly ? await fetchWordPool(pool, userId, true) : allPool;
-
   const baseMeta = {
     study_only: studyOnly,
+    difficult_only: difficultOnly,
     total_words: allPool.length,
     pool_words: activePool.length,
     total_levels: LEVEL_COUNT
   };
 
   if (activePool.length === 0) {
-    return res.status(200).json({
-      success: true,
-      lesson: null,
-      ...baseMeta,
-      error: studyOnly
-        ? 'Özel çalışma listenizde kelime yok. Lütfen kelime tablosundan yıldız ikonuna basarak kelime seçin.'
-        : 'Kelime havuzu boş.'
-    });
+    let emptyError = 'Kelime havuzu boş.';
+    if (studyOnly && difficultOnly) {
+      emptyError = 'Seçili havuzlarda (Özel + Zorlu) kelime yok. Lütfen kelime seçin veya testlerde yanlış yapın.';
+    } else if (studyOnly) {
+      emptyError = 'Özel çalışma listenizde kelime yok. Lütfen kelime tablosundan yıldız ikonuna basarak kelime seçin.';
+    } else if (difficultOnly) {
+      emptyError = 'Zorlu Kelimeler listenizde kelime yok. Önce testlerde yanlış yaparak zorlu kelime oluşturun.';
+    }
+    return res.status(200).json({ success: true, lesson: null, ...baseMeta, error: emptyError });
   }
 
   // Otomatik zorluk sınıflandırması ile TAM 5 seviye
@@ -165,8 +193,18 @@ async function handleGet(req, res, pool) {
   const wrongCounts = await fetchWrongCounts(pool, userId);
 
   // İstenen seviyeyi 1..5 aralığına sınırla
-  const effectiveLevel = Math.min(Math.max(1, requestedLevel || progress.level_number || 1), LEVEL_COUNT);
-  const levelWords = levels[effectiveLevel - 1].words;
+  let effectiveLevel = Math.min(Math.max(1, requestedLevel || progress.level_number || 1), LEVEL_COUNT);
+  let levelWords = levels[effectiveLevel - 1].words;
+
+  // Seçili havuz küçük olduğunda istenen seviye boş kalabilir; kelime içeren
+  // en yakın seviyeye düş (önce yukarı, sonra aşağı).
+  if (levelWords.length === 0) {
+    const fallback = levels.findIndex(l => l.words.length > 0);
+    if (fallback >= 0) {
+      effectiveLevel = fallback + 1;
+      levelWords = levels[fallback].words;
+    }
+  }
 
   if (levelWords.length === 0) {
     return res.status(200).json({
@@ -181,15 +219,27 @@ async function handleGet(req, res, pool) {
   // Seviyeye özel tamamlanan kelimeler
   const completedSet = new Set(progress.level_completed[effectiveLevel] || []);
 
-  // Tekrarsız, zorlu kelime öncelikli seçim (bu seviyenin havuzundan)
-  const selection = engine.selectSessionWords(levelWords, completedSet, wrongCounts, LEVEL_SIZE);
+  // Seçili havuz bir tam dersten (10 kelime) küçükse mini ders: tüm aktif
+  // havuzu kullan ki farklı seviyelere dağılmış kelimeler dışarıda kalmasın.
+  const sessionPool = activePool.length < LEVEL_SIZE ? activePool : levelWords;
+  const sessionCompleted = sessionPool === activePool ? new Set() : completedSet;
 
-  // Bu seviyedeki tüm kelimeler tamamlandıysa seviye döngüsü sıfırlanır
+  // Tekrarsız, zorlu kelime öncelikli seçim
+  const selection = engine.selectSessionWords(sessionPool, sessionCompleted, wrongCounts, LEVEL_SIZE);
+
+  // Havuzdaki tüm kelimeler tamamlandıysa döngü sıfırlanır
   let poolReset = selection.poolReset;
   if (poolReset) {
-    progress.level_completed[effectiveLevel] = [];
-    progress.current_cycle += 1;
-    await saveLessonProgress(pool, userId, progress.level_number, progress.level_completed, progress.current_cycle);
+    if (sessionPool === activePool) {
+      // Mini ders: tamamlanan kelimeleri tüm seviyelerden temizle ve turu sıfırla
+      Object.keys(progress.level_completed).forEach(lvl => { progress.level_completed[lvl] = []; });
+      progress.current_cycle += 1;
+      await saveLessonProgress(pool, userId, progress.level_number, progress.level_completed, progress.current_cycle);
+    } else {
+      progress.level_completed[effectiveLevel] = [];
+      progress.current_cycle += 1;
+      await saveLessonProgress(pool, userId, progress.level_number, progress.level_completed, progress.current_cycle);
+    }
   }
 
   const selectedWords = selection.words;
@@ -203,8 +253,9 @@ async function handleGet(req, res, pool) {
   const lesson = engine.buildLesson(selectedWords, activePool, effectiveLevel, LEVEL_COUNT);
 
   const isMini = selectedWords.length < LEVEL_SIZE;
-  const warning = (studyOnly && activePool.length < LEVEL_SIZE)
-    ? `Özel listenizde yalnızca ${activePool.length} kelime var. Mini ders oluşturuldu; tam ders için en az ${LEVEL_SIZE} kelime seçin.`
+  const filterLabel = (studyOnly && difficultOnly) ? 'Seçili (Özel + Zorlu)' : (studyOnly ? 'Özel' : 'Zorlu');
+  const warning = ((studyOnly || difficultOnly) && activePool.length < LEVEL_SIZE)
+    ? `${filterLabel} listenizde yalnızca ${activePool.length} kelime var. Mini ders oluşturuldu; tam ders için en az ${LEVEL_SIZE} kelime seçin.`
     : (levelWords.length < LEVEL_SIZE
       ? `Seviye ${effectiveLevel} havuzunda ${levelWords.length} kelime var. Mini ders oluşturuldu.`
       : null);
@@ -265,6 +316,7 @@ async function handlePost(req, res, pool) {
     : LEVEL_SIZE;
   const completedWords = Array.isArray(body.completed_words) ? body.completed_words : [];
   const studyOnly = body.study_only === true;
+  const difficultOnly = body.difficult_only === true;
 
   const ratio = totalQuestions > 0 ? correctCount / totalQuestions : 0;
   const passed = ratio >= PASS_RATIO; // %80 eşiği
@@ -286,7 +338,7 @@ async function handlePost(req, res, pool) {
   levelCompleted[completedLevel] = Array.from(completedSet);
 
   // Bu seviyenin tamamı bitti mi?
-  const activePool = await fetchWordPool(pool, userId, studyOnly);
+  const { active: activePool } = await fetchActivePool(pool, userId, { studyOnly, difficultOnly });
   const planSource = activePool.length > 0 ? activePool : await fetchWordPool(pool, userId, false);
   const levels = engine.buildFiveLevels(planSource);
   const levelWords = levels[completedLevel - 1] ? levels[completedLevel - 1].words : [];

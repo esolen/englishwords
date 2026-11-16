@@ -8,17 +8,45 @@ const WordStore = {
   words: [],
   studyList: new Set(), // Kullanıcının seçtiği özel kelimeler (english lowercase)
   useOnlyStudyList: false, // "Sadece Seçtiğim Kelimelerle Çalış" Filtresi
+  useOnlyDifficult: false, // "Sadece Zorlu Kelimelerle Çalış" Filtresi
   DIFFICULT_THRESHOLD: 1,
 
+  // Bir kelime "zorlu" mu? (yanlış sayısı eşiğin üstünde)
+  isDifficultWord(word) {
+    return !!word && (word.wrongCount || 0) >= this.DIFFICULT_THRESHOLD;
+  },
+
+  // Aktif filtreleri (özel liste ve/veya zorlu liste) uygulanmış kelime havuzu.
+  // Hiçbir filtre yoksa tüm geçerli kelimeler döner.
   getWords() {
     // Bozuk/eksik alanlı kayıtları ayıkla (arayüz çökmesin)
-    let list = (this.words || []).filter(w => w && w.en != null && String(w.en).trim() !== '' && w.tr != null);
+    const list = (this.words || []).filter(w => w && w.en != null && String(w.en).trim() !== '' && w.tr != null);
 
-    // "Sadece Seçtiğim Kelimelerle Çalış" filtresi
-    if (this.useOnlyStudyList) {
-      list = list.filter(w => this.studyList.has(String(w.en).toLowerCase()));
-    }
-    return list;
+    if (!this.useOnlyStudyList && !this.useOnlyDifficult) return list;
+
+    return list.filter(w => {
+      const inStudy = this.useOnlyStudyList && this.studyList.has(String(w.en).toLowerCase());
+      const isDifficult = this.useOnlyDifficult && this.isDifficultWord(w);
+      // İkisi birlikte aktifse birleşim (union); tek aktifse o filtre.
+      if (this.useOnlyStudyList && this.useOnlyDifficult) return inStudy || isDifficult;
+      if (this.useOnlyStudyList) return inStudy;
+      return isDifficult;
+    });
+  },
+
+  // Çeldirici/soru üretimi için filtrelerden bağımsız tam geçerli kelime havuzu.
+  getDistractorPool() {
+    return (this.words || []).filter(w => w && w.en != null && String(w.en).trim() !== '' && w.tr != null);
+  },
+
+  // Çeldirici (yanlış şık) üretimi için havuz: önce aktif filtredeki kelimeler,
+  // ardından havuz yetmezse genel kelime havuzuyla tamamlanır. Soru kelimesi her
+  // zaman aktif filtreden gelir; yalnızca çeldiriciler bu havuzdan tamamlanabilir.
+  getQuizDistractorPool() {
+    const filtered = this.getWords();
+    const seen = new Set(filtered.map(w => String(w.id)));
+    const extra = this.getDistractorPool().filter(w => !seen.has(String(w.id)));
+    return [...filtered, ...extra];
   },
 
   getAllWords() {
@@ -61,11 +89,12 @@ const WordStore = {
   },
 
   getDifficultWords() {
-    return this.getWords().filter(w => (w.wrongCount || 0) >= this.DIFFICULT_THRESHOLD);
+    // Filtrelerden bağımsız: tüm geçerli kelimeler arasından zorlu olanlar
+    return this.getDistractorPool().filter(w => this.isDifficultWord(w));
   },
 
   recordMistake(wordId, gameType = 'general') {
-    const words = this.getWords();
+    const words = this.getDistractorPool();
     const word = words.find(w => String(w.id) === String(wordId) || w.en.toLowerCase() === String(wordId).toLowerCase());
     if (word) {
       word.wrongCount = (word.wrongCount || 0) + 1;
@@ -78,7 +107,7 @@ const WordStore = {
   },
 
   recordSuccess(wordId) {
-    const words = this.getWords();
+    const words = this.getDistractorPool();
     const word = words.find(w => String(w.id) === String(wordId) || w.en.toLowerCase() === String(wordId).toLowerCase());
     if (word && word.wrongCount > 0) {
       word.wrongCount = Math.max(0, word.wrongCount - 1);
@@ -90,7 +119,7 @@ const WordStore = {
   },
 
   clearMistakes(wordId) {
-    const words = this.getWords();
+    const words = this.getDistractorPool();
     const word = words.find(w => String(w.id) === String(wordId) || w.en.toLowerCase() === String(wordId).toLowerCase());
     if (word) {
       word.wrongCount = 0;
@@ -99,6 +128,34 @@ const WordStore = {
         AuthStore.syncWrongWord(word.en, 'remove');
       }
     }
+  },
+
+  // "Bunu Öğrendim" — kelimeyi Zorlu Kelimeler listesinden kalıcı olarak çıkarır
+  // (yerel durum + localStorage + Neon PostgreSQL). Yalnızca zorlu kelimeler için çağrılır.
+  learnHardWord(word) {
+    if (!word || !word.en) return false;
+    const en = String(word.en);
+    const lower = en.toLowerCase();
+    const target = this.getDistractorPool().find(
+      w => String(w.id) === String(word.id) || String(w.en).toLowerCase() === lower
+    );
+    if (!target || !this.isDifficultWord(target)) return false;
+
+    target.wrongCount = 0;
+
+    // Çevrimdışı/yedek senkronizasyon: öğrenilen zorlu kelimeler localStorage'da tutulur
+    try {
+      const raw = localStorage.getItem('learned_hard_words_v1');
+      const arr = Array.isArray(JSON.parse(raw || '[]')) ? JSON.parse(raw || '[]') : [];
+      if (!arr.includes(lower)) arr.push(lower);
+      localStorage.setItem('learned_hard_words_v1', JSON.stringify(arr));
+    } catch (e) { /* yoksay */ }
+
+    this.notifyUpdate();
+    if (AuthStore && AuthStore.user && AuthStore.user.id) {
+      AuthStore.syncWrongWord(en, 'remove');
+    }
+    return true;
   },
 
   parseBulkText(text) {
@@ -135,20 +192,20 @@ const WordStore = {
     if (newWords.length === 0) return 0;
 
     if (replace) {
-      this.saveWords(newWords);
+      this.setWords(newWords);
       return newWords.length;
     } else {
-      const current = this.getWords();
+      const current = this.getDistractorPool();
       const existingEn = new Set(current.map(w => w.en.toLowerCase()));
       const filtered = newWords.filter(w => !existingEn.has(w.en.toLowerCase()));
       const updated = [...current, ...filtered];
-      this.saveWords(updated);
+      this.setWords(updated);
       return filtered.length;
     }
   },
 
   deleteWord(id) {
-    const current = this.getWords();
+    const current = this.getDistractorPool();
     const filtered = current.filter(w => String(w.id) !== String(id));
     this.setWords(filtered);
   },
@@ -346,10 +403,14 @@ function updateHeaderBadges() {
   const allWords = WordStore.getAllWords();
   const difficult = WordStore.getDifficultWords();
   const studyListSize = WordStore.studyList ? WordStore.studyList.size : 0;
+  const filtersActive = WordStore.useOnlyStudyList || WordStore.useOnlyDifficult;
+  const filterLabel = WordStore.useOnlyStudyList && WordStore.useOnlyDifficult
+    ? 'Özel+Zorlu'
+    : (WordStore.useOnlyStudyList ? 'Özel' : 'Zorlu');
 
   // 1. Üst Bar Sayaçları
   const totalBadge = document.getElementById('total-words-badge');
-  if (totalBadge) totalBadge.textContent = WordStore.useOnlyStudyList ? `${words.length} (Özel)` : allWords.length;
+  if (totalBadge) totalBadge.textContent = filtersActive ? `${words.length} (${filterLabel})` : allWords.length;
 
   const diffBadge = document.getElementById('difficult-count-badge');
   if (diffBadge) diffBadge.textContent = difficult.length;
@@ -362,13 +423,20 @@ function updateHeaderBadges() {
 
   // 2. Başlık Yanındaki Klon Mobil Buton Sayaçları
   const inlineTotalBadge = document.getElementById('inline-total-words-badge');
-  if (inlineTotalBadge) inlineTotalBadge.textContent = WordStore.useOnlyStudyList ? `${words.length} (Özel)` : allWords.length;
+  if (inlineTotalBadge) inlineTotalBadge.textContent = filtersActive ? `${words.length} (${filterLabel})` : allWords.length;
 
   const inlineDiffBadge = document.getElementById('inline-difficult-count-badge');
   if (inlineDiffBadge) inlineDiffBadge.textContent = difficult.length;
 
   const inlineStudyBadge = document.getElementById('inline-study-list-count-badge');
   if (inlineStudyBadge) inlineStudyBadge.textContent = studyListSize;
+
+  // 3. Filtre Anahtarlarının Yanındaki Dinamik Sayaçlar
+  const studyToggleBadge = document.getElementById('study-list-count-badge-inline');
+  if (studyToggleBadge) studyToggleBadge.textContent = studyListSize;
+
+  const diffToggleBadge = document.getElementById('difficult-filter-count-badge');
+  if (diffToggleBadge) diffToggleBadge.textContent = difficult.length;
 
   renderWordsTable();
 }
@@ -443,6 +511,42 @@ function deleteWordHandler(id) {
   AudioService.playSfx('click');
   showToast('Kelime silindi.', 'info');
   updateHeaderBadges();
+}
+
+// --- "Bunu Öğrendim (Zorlu Listesinden Çıkar)" butonu (YALNIZCA zorlu kelimeler) ---
+// Gösterilen/cevaplanan kelime kullanıcının Zorlu Kelimeler listesindeyse true döner.
+function isWordInHardList(word) {
+  if (!word) return false;
+  const en = String(word.en != null ? word.en : (word.english != null ? word.english : '')).trim().toLowerCase();
+  if (!en) return false;
+  const found = WordStore.getDistractorPool().find(w => String(w.en).toLowerCase() === en);
+  return !!(found && WordStore.isDifficultWord(found));
+}
+
+// Zorlu kelime ise şık "Bunu Öğrendim" butonu HTML'i döner; değilse boş string.
+function hardWordLearnButtonHtml(word, extraClass = '') {
+  if (!isWordInHardList(word)) return '';
+  const en = String(word.en != null ? word.en : (word.english != null ? word.english : ''));
+  return `
+    <button type="button" class="learned-hard-btn ${extraClass}" data-word="${escapeHtml(en)}" onclick="learnHardWordHandler(this)" title="Bu kelimeyi Zorlu Kelimeler listesinden kalıcı olarak çıkar">
+      <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+      <span>Bunu Öğrendim (Zorlu Listesinden Çıkar)</span>
+    </button>`;
+}
+
+// Buton tıklaması: kelimeyi kalıcı olarak zorlu listesinden çıkarır.
+function learnHardWordHandler(btnEl) {
+  const en = btnEl && btnEl.getAttribute ? btnEl.getAttribute('data-word') : '';
+  if (!en) return;
+  const word = WordStore.getDistractorPool().find(w => String(w.en).toLowerCase() === String(en).toLowerCase());
+  if (!word) return;
+  const removed = WordStore.learnHardWord(word);
+  if (removed) {
+    AudioService.playSfx('win');
+    showToast('Kelime zorlu listesinden çıkarıldı! ✅', 'success');
+    if (btnEl && btnEl.style) btnEl.style.display = 'none';
+    updateHeaderBadges();
+  }
 }
 
 // 7. Modalları Yönetme
@@ -617,6 +721,21 @@ function setupModals() {
       const filteredCount = WordStore.getWords().length;
       if (WordStore.useOnlyStudyList) {
         showToast(`Özel Çalışma Havuzu Aktif! (${filteredCount} kelime)`, 'success');
+      } else {
+        showToast('Tüm kelime havuzuna dönüldü.', 'info');
+      }
+      updateHeaderBadges();
+    });
+  }
+
+  // Zorlu Kelimeler Çalışma Havuzu Toggle Switch Dinleyicisi
+  const difficultToggle = document.getElementById('custom-difficult-filter-toggle');
+  if (difficultToggle) {
+    difficultToggle.addEventListener('change', (e) => {
+      WordStore.useOnlyDifficult = e.target.checked;
+      const filteredCount = WordStore.getWords().length;
+      if (WordStore.useOnlyDifficult) {
+        showToast(`Zorlu Kelimeler Havuzu Aktif! (${filteredCount} kelime)`, 'success');
       } else {
         showToast('Tüm kelime havuzuna dönüldü.', 'info');
       }
@@ -964,11 +1083,11 @@ const DashboardLayoutUI = {
   }
 };
 
-// Varsayılan kart sırası (data-game kimlikleri, index.html'deki mevcut sırayla uyumlu)
+// Varsayılan kart sırası (data-game kimlikleri, index.html'deki DOM sırasıyla birebir uyumlu)
 const DEFAULT_CARD_ORDER = [
-  'step-by-step-lessons', 'flashcards', 'multiple-choice', 'difficult-words',
-  'true-false', 'matching', 'handwriting', 'pronunciation', 'fill-blanks',
-  'hangman', 'time-attack', 'word-bomb'
+  'flashcards', 'multiple-choice', 'difficult-words', 'fill-blanks', 'word-bomb',
+  'time-attack', 'hangman', 'step-by-step-lessons', 'matching', 'true-false',
+  'handwriting', 'pronunciation'
 ];
 
 // 8. Oyun Yöneticisi (Game Manager)
@@ -1075,6 +1194,18 @@ function shuffleArray(array) {
   return arr;
 }
 
+// Zorlu kelimeleri (yanlış sayısı yüksek) havuzun önüne alacak şekilde karıştırır.
+// Böylece filtre kapalıyken bile "Zorlu Kelimeler" listesindeki kelimeler oyunlarda
+// öncelikli/erken karşımıza çıkar (tamamı zorluysa salt rastgele kalır).
+function prioritizedShuffle(array) {
+  const arr = Array.isArray(array) ? array : [];
+  if (arr.length === 0) return [];
+  const difficult = arr.filter(w => w && (w.wrongCount || 0) > 0);
+  const rest = arr.filter(w => !w || (w.wrongCount || 0) <= 0);
+  if (difficult.length === 0 || rest.length === 0) return shuffleArray(arr);
+  return [...shuffleArray(difficult), ...shuffleArray(rest)];
+}
+
 // Yardımcı fonksiyon: 5000+ kelimelik büyük havuzdan O(1) maliyetle N adet rastgele örnekleme (Random Sampling)
 function getRandomSample(array, count) {
   if (!Array.isArray(array) || array.length <= count) {
@@ -1098,8 +1229,9 @@ function getRandomSample(array, count) {
 // ============================================================================
 class FlashcardsGame {
   constructor() {
-    // 5000+ kelimede anlık yanıt için rastgele 20 kelimelik çalışma paketi
-    this.words = getRandomSample(WordStore.getWords(), 20);
+    // 5000+ kelimede anlık yanıt için 20 kelimelik çalışma paketi
+    // (zorlu kelimeler paketin başına öncelikli gelir)
+    this.words = prioritizedShuffle(WordStore.getWords()).slice(0, 20);
     this.currentIndex = 0;
     this.isFlipped = false;
     this.knownCount = 0;
@@ -1200,6 +1332,7 @@ class FlashcardsGame {
             Sonraki <i data-lucide="chevron-right" class="w-3.5 h-3.5 sm:w-4 sm:h-4"></i>
           </button>
         </div>
+        ${hardWordLearnButtonHtml(word)}
       </div>
     `;
 
@@ -1540,8 +1673,9 @@ class MultipleChoiceGame {
     const dir = this._resolveDirection();
     const isEnToTr = dir === 'en-to-tr';
     const side = isEnToTr ? 'tr' : 'en';
+    // Soru kelimesi aktif filtreden gelir; çeldiriciler gerekirse genel havuzdan tamamlanır.
     const distractors = pickDistractorWords(
-      this.allWords, word, MultipleChoiceGame.OPTION_COUNT - 1, side
+      WordStore.getQuizDistractorPool(), word, MultipleChoiceGame.OPTION_COUNT - 1, side
     );
     const options = shuffleArray([
       { text: isEnToTr ? word.tr : word.en, isCorrect: true, word },
@@ -1640,6 +1774,7 @@ class MultipleChoiceGame {
           `).join('')}
         </div>
         ${this.shortcutsEnabled ? `<p class="text-[11px] text-slate-500 mt-3 text-center">Klavye: A-B-C-D veya 1-2-3-4 ile seç • R ile dinle</p>` : ''}
+        ${hardWordLearnButtonHtml(currentWord)}
       </div>
     `;
 
@@ -2073,8 +2208,8 @@ class DifficultWordsGame {
       }
 
       AudioService.playSfx('win');
-      // 2. Neon PostgreSQL'den ve yerel durumdan anlık sil
-      WordStore.clearMistakes(word.id);
+      // 2. Neon PostgreSQL'den, yerel durumdan ve localStorage yedeğinden anlık sil
+      WordStore.learnHardWord(word);
       showToast(`"${word.en}" zorlu kelimelerden silindi! 🎉`, 'success');
       updateHeaderBadges();
 
@@ -2097,7 +2232,7 @@ class DifficultWordsGame {
 // ============================================================================
 class TrueFalseGame {
   constructor() {
-    this.words = shuffleArray(WordStore.getWords());
+    this.words = prioritizedShuffle(WordStore.getWords());
     this.allWords = WordStore.getWords();
     this.currentIndex = 0;
     this.score = 0;
@@ -2122,9 +2257,11 @@ class TrueFalseGame {
     let displayedTr = currentWord.tr;
 
     if (!isActuallyCorrect && this.allWords.length > 1) {
-      const otherWords = this.allWords.filter(w => w.id !== currentWord.id);
-      const randomWrong = otherWords[Math.floor(Math.random() * otherWords.length)];
-      displayedTr = randomWrong.tr;
+      const otherWords = WordStore.getQuizDistractorPool().filter(w => w.id !== currentWord.id);
+      if (otherWords.length > 0) {
+        const randomWrong = otherWords[Math.floor(Math.random() * otherWords.length)];
+        displayedTr = randomWrong.tr;
+      }
     }
 
     stage.innerHTML = `
@@ -2161,6 +2298,7 @@ class TrueFalseGame {
             <i data-lucide="check-circle" class="w-6 h-6"></i> DOĞRU
           </button>
         </div>
+        ${hardWordLearnButtonHtml(currentWord)}
       </div>
     `;
 
@@ -2351,7 +2489,8 @@ class MatchingGame {
     this._stopTimer();
     this.phase = 'play';
     const pairs = this._pairs();
-    const sample = getRandomSample(this.pool, pairs);
+    // Zorlu kelimeler öncelikli olarak seçilir (filtre kapalıyken de öne çıksın)
+    const sample = prioritizedShuffle(this.pool).slice(0, pairs);
 
     this.enCards = shuffleArray(sample.map((w, idx) => ({
       id: `en_${w.id}_${idx}`, wordId: w.id, text: w.en, type: 'en', matched: false, word: w
@@ -2467,6 +2606,7 @@ class MatchingGame {
                 <span class="en-word">${escapeHtml(m.en)}</span>
                 <span class="arrow">➔</span>
                 <span class="tr-word">${escapeHtml(m.tr)}</span>
+                ${m.word ? hardWordLearnButtonHtml(m.word, 'learned-hard-btn-inline') : ''}
               </div>
             `).join('')}
           </div>
@@ -2539,7 +2679,8 @@ class MatchingGame {
 
             const enText = first.card.type === 'en' ? first.card.text : second.card.text;
             const trText = first.card.type === 'tr' ? first.card.text : second.card.text;
-            this.activeMatches.push({ en: enText, tr: trText });
+            const matchedWord = first.card.word || second.card.word || null;
+            this.activeMatches.push({ en: enText, tr: trText, word: matchedWord });
 
             const t = setTimeout(() => {
               first.el.classList.add('matched-hidden');
@@ -2658,7 +2799,7 @@ class MatchingGame {
 // ============================================================================
 class HandwritingGame {
   constructor() {
-    this.words = shuffleArray(WordStore.getWords());
+    this.words = prioritizedShuffle(WordStore.getWords());
     this.currentIndex = 0;
     this.score = 0;
     this.isDrawing = false;
@@ -2747,6 +2888,7 @@ class HandwritingGame {
         <div id="ocr-result-badge" class="w-full mt-3 p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-center text-xs text-slate-400 min-h-[42px] flex items-center justify-center">
           <span>Yazınızı tahtaya yazdıktan sonra "Kontrol Et" butonuna basınız.</span>
         </div>
+        ${hardWordLearnButtonHtml(word)}
       </div>
     `;
 
@@ -3047,7 +3189,8 @@ class HandwritingGame {
 class HangmanGame {
   constructor() {
     this.maxLives = 6;
-    this.words = getHangmanPool();
+    // Zorlu kelimeler öncelikli olarak başa gelir
+    this.words = prioritizedShuffle(getHangmanPool());
     this.allWords = this.words;
     this.currentIndex = 0;
     this.score = 0;
@@ -3201,6 +3344,7 @@ class HangmanGame {
             </button>
           </div>
         ` : ''}
+        ${hardWordLearnButtonHtml(word)}
       </div>
     `;
 
@@ -3333,7 +3477,7 @@ class HangmanGame {
 // ============================================================================
 class FillBlanksGame {
   constructor() {
-    this.words = shuffleArray(WordStore.getWords());
+    this.words = prioritizedShuffle(WordStore.getWords());
     this.allWords = WordStore.getWords();
     this.currentIndex = 0;
     this.score = 0;
@@ -3361,8 +3505,8 @@ class FillBlanksGame {
     ];
     const template = templates[this.currentIndex % templates.length];
 
-    // Şıklar (1 doğru, 3 yanlış)
-    const otherWords = this.allWords.filter(w => w.id !== currentWord.id);
+    // Şıklar (1 doğru, 3 yanlış) — soru kelimesi filtreli, çeldiriciler gerekirse genel havuzdan
+    const otherWords = WordStore.getQuizDistractorPool().filter(w => w.id !== currentWord.id);
     const options = shuffleArray([
       { text: currentWord.en, isCorrect: true },
       ...shuffleArray(otherWords).slice(0, 3).map(w => ({ text: w.en, isCorrect: false }))
@@ -3399,6 +3543,7 @@ class FillBlanksGame {
             </button>
           `).join('')}
         </div>
+        ${hardWordLearnButtonHtml(currentWord)}
       </div>
     `;
 
@@ -3478,7 +3623,7 @@ GAMES['fill-blanks'] = FillBlanksGame;
 // ============================================================================
 class PronunciationGame {
   constructor() {
-    this.words = shuffleArray(WordStore.getWords());
+    this.words = prioritizedShuffle(WordStore.getWords());
     this.currentIndex = 0;
     this.score = 0;
     this.isListening = false;
@@ -3544,6 +3689,7 @@ class PronunciationGame {
         <button id="pronounce-skip-btn" class="mt-5 text-xs text-slate-400 hover:text-white transition flex items-center gap-1">
           Bu kelimeyi geç <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
         </button>
+        ${hardWordLearnButtonHtml(word)}
       </div>
     `;
 
@@ -3691,7 +3837,7 @@ class PronunciationGame {
 class TimeAttackGame {
   constructor() {
     this.allWords = WordStore.getWords();
-    this.words = shuffleArray(this.allWords);
+    this.words = prioritizedShuffle(this.allWords);
     this.durations = [30, 60, 90, 120];
     this.duration = 60;
     this.timeLeft = 60;
@@ -3767,7 +3913,7 @@ class TimeAttackGame {
     this.wrongCount = 0;
     this.combo = 0;
     this.maxCombo = 0;
-    this.words = shuffleArray(this.allWords);
+    this.words = prioritizedShuffle(this.allWords);
     this.currentIndex = 0;
 
     const timerContainer = document.getElementById('game-timer-container');
@@ -3806,7 +3952,7 @@ class TimeAttackGame {
     const currentWord = this.words[this.currentIndex % this.words.length];
     updateGameScore(this.score);
 
-    const otherWords = this.allWords.filter(w => w.id !== currentWord.id);
+    const otherWords = WordStore.getQuizDistractorPool().filter(w => w.id !== currentWord.id);
     const options = shuffleArray([
       { text: currentWord.tr, isCorrect: true },
       ...shuffleArray(otherWords).slice(0, 3).map(w => ({ text: w.tr, isCorrect: false }))
@@ -3840,6 +3986,7 @@ class TimeAttackGame {
             </button>
           `).join('')}
         </div>
+        ${hardWordLearnButtonHtml(currentWord)}
       </div>
     `;
 
@@ -3971,7 +4118,9 @@ GAMES['time-attack'] = TimeAttackGame;
 // ============================================================================
 class WordBombGame {
   constructor() {
+    // Soru kelimeleri aktif filtreden (özel/zorlu) gelir; çeldiriciler için geniş havuz.
     this.pool = getWordBombPool();
+    this.distractorPool = filterSingleEnglishWords(WordStore.getQuizDistractorPool());
     this.maxLives = 3;
     this.lives = this.maxLives;
     this.score = 0;
@@ -4088,12 +4237,16 @@ class WordBombGame {
   }
 
   buildQuestion() {
-    const word = this.pool[Math.floor(Math.random() * this.pool.length)];
+    // Soru kelimesi: zorlu kelimeler öncelikli bir kuyruktan alınır.
+    if (!this._wordQueue || this._wordQueue.length === 0) {
+      this._wordQueue = prioritizedShuffle(this.pool);
+    }
+    const word = this._wordQueue.shift();
     const correctText = this.displayMeaning(word);
 
-    // Çeldiriciler: farklı kelimelerden, doğru cevapla aynı olmayan 3 anlam
+    // Çeldiriciler: önce aktif havuzdan, yetmezse genel havuzdan tamamla
     const candidates = shuffleArray(
-      this.pool.filter(w => String(w.id) !== String(word.id) && this.displayMeaning(w) !== correctText)
+      this.distractorPool.filter(w => String(w.id) !== String(word.id) && this.displayMeaning(w) !== correctText)
     );
     const distractors = [];
     const seen = new Set([correctText.toLowerCase()]);
@@ -4151,6 +4304,9 @@ class WordBombGame {
 
         <!-- 2x2 Şık Paneli -->
         <div id="bomb-options" class="grid grid-cols-2 gap-3 w-full"></div>
+
+        <!-- Zorlu kelime ise "Bunu Öğrendim" butonu buraya gelir -->
+        <div id="bomb-learn-slot" class="w-full flex justify-center"></div>
       </div>`;
     if (window.lucide) window.lucide.createIcons();
     this.showTopFuse(true);
@@ -4190,6 +4346,13 @@ class WordBombGame {
     if (bar) bar.style.width = '100%';
     const lbl = document.getElementById('game-fuse-label');
     if (lbl) lbl.textContent = String(Math.ceil(this.selectedFuseDuration || this.duration));
+
+    // Zorlu kelime ise "Bunu Öğrendim" butonu (yalnızca zorlu kelimeler)
+    const learnSlot = document.getElementById('bomb-learn-slot');
+    if (learnSlot) {
+      learnSlot.innerHTML = hardWordLearnButtonHtml(this.question.word);
+      if (window.lucide) window.lucide.createIcons();
+    }
   }
 
   renderNoWords() {
@@ -4547,9 +4710,10 @@ class StepByStepLessonsGame {
     }
 
     const isStudyOnly = WordStore.useOnlyStudyList;
+    const isDifficultOnly = WordStore.useOnlyDifficult;
     let data = null;
     try {
-      const resp = await fetch(`/api/lessons?user_id=${this.userId}&level=${levelNum}&study_only=${isStudyOnly}`);
+      const resp = await fetch(`/api/lessons?user_id=${this.userId}&level=${levelNum}&study_only=${isStudyOnly}&difficult_only=${isDifficultOnly}`);
       if (!resp.ok) throw new Error(`Sunucu hatası (${resp.status})`);
       data = await resp.json();
     } catch (err) {
@@ -4623,6 +4787,10 @@ class StepByStepLessonsGame {
       : this.currentLevel;
     const posLabel = this.posLabel(word.part_of_speech || word.pos);
     const synonyms = Array.isArray(word.synonyms) ? word.synonyms : [];
+    // Karttaki kelime Zorlu Kelimeler listesindeyse "Bunu Öğrendim" butonu gösterilir.
+    const learnableWord = WordStore.getDistractorPool().find(
+      w => String(w.en).toLowerCase() === String(word.english).toLowerCase()
+    ) || { en: word.english };
     updateGameScore(this.knownCount);
 
     stage.innerHTML = `
@@ -4701,6 +4869,14 @@ class StepByStepLessonsGame {
             </div>
           </div>
         </div>
+
+        ${meta.is_mini ? `
+          <div class="w-full mt-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] sm:text-xs text-amber-300 text-center">
+            ⚠️ Bu seviyede 10'dan az kelime var. Mini ders oluşturuldu.
+          </div>
+        ` : ''}
+
+        ${hardWordLearnButtonHtml(learnableWord)}
 
         <!-- Alt Kontrol Butonları -->
         <div class="w-full flex items-center justify-between gap-1.5 sm:gap-3 mt-3 sm:mt-5">
@@ -4868,6 +5044,11 @@ class StepByStepLessonsGame {
       return;
     }
 
+    // Soru hedefi Zorlu Kelimeler listesindeyse "Bunu Öğrendim" butonu gösterilir.
+    const quizWord = WordStore.getDistractorPool().find(
+      w => String(w.en).toLowerCase() === String(currentQ.target_word).toLowerCase()
+    ) || { en: currentQ.target_word };
+
     updateGameScore(this.score);
 
     stage.innerHTML = `
@@ -4904,6 +5085,8 @@ class StepByStepLessonsGame {
             </button>
           `).join('')}
         </div>
+
+        ${hardWordLearnButtonHtml(quizWord)}
       </div>
     `;
 
@@ -4987,7 +5170,8 @@ class StepByStepLessonsGame {
           total_questions: totalQuestions,
           wrong_words: this.wrongWords,
           completed_words: learnedThisLevel,
-          study_only: WordStore.useOnlyStudyList === true
+          study_only: WordStore.useOnlyStudyList === true,
+          difficult_only: WordStore.useOnlyDifficult === true
         })
       });
       if (resp.ok) serverResult = await resp.json();

@@ -288,8 +288,19 @@
             <label for="custom-study-filter-toggle" class="cursor-pointer flex items-center gap-2 text-xs font-semibold text-slate-200 select-none">
               <i data-lucide="star" class="w-4 h-4 text-amber-400 fill-amber-400"></i>
               <span>Sadece Seçtiğim Kelimelerle Çalış</span>
+              <span id="study-list-count-badge-inline" class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">0</span>
             </label>
             <input type="checkbox" id="custom-study-filter-toggle" class="w-4 h-4 rounded text-amber-500 focus:ring-amber-400 bg-slate-900 border-slate-600 cursor-pointer">
+          </div>
+
+          <!-- Zorlu Kelimeler Çalışma Havuzu Toggle Switch -->
+          <div class="flex items-center gap-2.5 p-2 rounded-xl bg-slate-800/80 border border-rose-500/30 shadow-sm self-start sm:self-auto">
+            <label for="custom-difficult-filter-toggle" class="cursor-pointer flex items-center gap-2 text-xs font-semibold text-slate-200 select-none">
+              <i data-lucide="flame" class="w-4 h-4 text-rose-400 fill-rose-400"></i>
+              <span>Sadece Zorlu Kelimelerle Çalış</span>
+              <span id="difficult-filter-count-badge" class="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">0</span>
+            </label>
+            <input type="checkbox" id="custom-difficult-filter-toggle" class="w-4 h-4 rounded text-rose-500 focus:ring-rose-400 bg-slate-900 border-slate-600 cursor-pointer">
           </div>
         </div>
 
@@ -321,22 +332,6 @@
 
         <!-- 12 Ana Modül Grid Kartları (Görsel 1) -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5" id="game-modules-grid">
-
-        <!-- 0. Kolaydan Zora (Adım Adım Öğren ve Test Et) -->
-        <div class="game-card group border-emerald-500/40 bg-gradient-to-br from-slate-900 via-emerald-950/25 to-slate-900 hover:border-emerald-400 shadow-lg shadow-emerald-500/10" data-game="step-by-step-lessons">
-          <div class="game-card-icon bg-emerald-500/20 text-emerald-400 group-hover:bg-emerald-500 group-hover:text-slate-950">
-            <i data-lucide="graduation-cap" class="w-6 h-6"></i>
-          </div>
-          <div class="flex items-center justify-between">
-            <h4 class="font-display font-bold text-lg text-white group-hover:text-emerald-300 transition">Kolaydan Zora</h4>
-            <span id="user-current-level-badge" class="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950">Seviye 1</span>
-          </div>
-          <p class="text-slate-400 text-xs mt-1 leading-relaxed">Tüm kelimeler YDS standardında (temel, orta, ileri akademik, çeldirici, phrasal/bağlaç) otomatik sınıflandırılır ve 5 seviyeye bölünür. Her seviyede 10 kelimeyi YDS bağlamlı örnek cümleler ve eş anlamlılarla öğren, ardından 5 şıklı boşluk doldurma testiyle %80 başarı sağlayarak bir üst seviyeye geç.</p>
-          <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
-            <span class="text-xs font-medium text-emerald-400 flex items-center gap-1"><i data-lucide="layers" class="w-3.5 h-3.5"></i> YDS Seviyeleri • 5 Kademe</span>
-            <span class="text-xs font-semibold text-emerald-400 group-hover:translate-x-1 transition flex items-center gap-1">Derslere Başla &rarr;</span>
-          </div>
-        </div>
 
           <!-- 1. Kelime Kartları -->
           <div class="game-card group" data-game="flashcards">
@@ -380,59 +375,7 @@
             </div>
           </div>
 
-          <!-- 4. Doğru mu Yanlış mı? -->
-          <div class="game-card group" data-game="true-false">
-            <div class="game-card-icon bg-emerald-500/10 text-emerald-400 group-hover:bg-emerald-500 group-hover:text-white">
-              <i data-lucide="check-square" class="w-6 h-6"></i>
-            </div>
-            <h4 class="font-display font-bold text-lg text-white group-hover:text-emerald-300 transition">Doğru mu Yanlış mı?</h4>
-            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Ekrana gelen İngilizce ve Türkçe eşleşmenin doğru olup olmadığını hızlıca tespit et.</p>
-            <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
-              <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="zap" class="w-3.5 h-3.5"></i> Hızlı Karar</span>
-              <span class="text-xs font-semibold text-emerald-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
-            </div>
-          </div>
-
-          <!-- 5. Eşleştirme -->
-          <div class="game-card group" data-game="matching">
-            <div class="game-card-icon bg-purple-500/10 text-purple-400 group-hover:bg-purple-500 group-hover:text-white">
-              <i data-lucide="combine" class="w-6 h-6"></i>
-            </div>
-            <h4 class="font-display font-bold text-lg text-white group-hover:text-purple-300 transition">Eşleştirme</h4>
-            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Karışık dizilmiş İngilizce ve Türkçe kutucukları doğru eşleştirerek tahtayı temizle.</p>
-            <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
-              <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="grid" class="w-3.5 h-3.5"></i> Hafıza & Hız</span>
-              <span class="text-xs font-semibold text-purple-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
-            </div>
-          </div>
-
-          <!-- 6. El Yazısı (Kalem) -->
-          <div class="game-card group" data-game="handwriting">
-            <div class="game-card-icon bg-amber-500/10 text-amber-400 group-hover:bg-amber-500 group-hover:text-white">
-              <i data-lucide="pen-tool" class="w-6 h-6"></i>
-            </div>
-            <h4 class="font-display font-bold text-lg text-white group-hover:text-amber-300 transition">El Yazısı (Kalem)</h4>
-            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Türkçe anlamı verilen kelimenin İngilizcesini klavye ile harf harf doğru şekilde yaz.</p>
-            <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
-              <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="keyboard" class="w-3.5 h-3.5"></i> Yazım Pratiği</span>
-              <span class="text-xs font-semibold text-amber-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
-            </div>
-          </div>
-
-          <!-- 7. Telaffuz -->
-          <div class="game-card group" data-game="pronunciation">
-            <div class="game-card-icon bg-cyan-500/10 text-cyan-400 group-hover:bg-cyan-500 group-hover:text-white">
-              <i data-lucide="mic" class="w-6 h-6"></i>
-            </div>
-            <h4 class="font-display font-bold text-lg text-white group-hover:text-cyan-300 transition">Telaffuz</h4>
-            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Kelimeyi İngilizce dinle ve mikrofona basarak doğru telaffuz etmeye çalış (Web Speech API).</p>
-            <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
-              <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="volume-2" class="w-3.5 h-3.5"></i> Sesli Tanıma</span>
-              <span class="text-xs font-semibold text-cyan-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
-            </div>
-          </div>
-
-          <!-- 8. Boşluk Doldurma -->
+          <!-- 4. Boşluk Doldurma -->
           <div class="game-card group" data-game="fill-blanks">
             <div class="game-card-icon bg-teal-500/10 text-teal-400 group-hover:bg-teal-500 group-hover:text-white">
               <i data-lucide="file-question" class="w-6 h-6"></i>
@@ -445,33 +388,7 @@
             </div>
           </div>
 
-          <!-- 9. Adam Asmaca -->
-          <div class="game-card group" data-game="hangman">
-            <div class="game-card-icon bg-indigo-500/10 text-indigo-400 group-hover:bg-indigo-500 group-hover:text-white">
-              <i data-lucide="user-x" class="w-6 h-6"></i>
-            </div>
-            <h4 class="font-display font-bold text-lg text-white group-hover:text-indigo-300 transition">Adam Asmaca</h4>
-            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Türkçe ipucu eşliğinde gizli İngilizce kelimeyi can hakların tükenmeden harf harf bul.</p>
-            <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
-              <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="heart" class="w-3.5 h-3.5"></i> Klasik Oyun</span>
-              <span class="text-xs font-semibold text-indigo-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
-            </div>
-          </div>
-
-          <!-- 10. Zamana Karşı -->
-          <div class="game-card group" data-game="time-attack">
-            <div class="game-card-icon bg-red-500/10 text-red-400 group-hover:bg-red-500 group-hover:text-white">
-              <i data-lucide="timer" class="w-6 h-6"></i>
-            </div>
-            <h4 class="font-display font-bold text-lg text-white group-hover:text-red-300 transition">Zamana Karşı</h4>
-            <p class="text-slate-400 text-xs mt-1 leading-relaxed">60 saniyelik geri sayımda olabildiğince çok kelime bil; hızını ve reflekslerini test et.</p>
-            <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
-              <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="clock" class="w-3.5 h-3.5"></i> 60 Saniye</span>
-              <span class="text-xs font-semibold text-red-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
-            </div>
-          </div>
-
-          <!-- 11. Kelime Bombası (Bağımsız Modül) -->
+          <!-- 5. Kelime Bombası -->
           <div class="game-card group border-rose-500/40 bg-gradient-to-br from-slate-900 via-rose-950/25 to-slate-900 hover:border-rose-400 shadow-lg shadow-rose-500/10" data-game="word-bomb">
             <div class="game-card-icon bg-rose-500/10 text-rose-400 group-hover:bg-rose-500 group-hover:text-white">
               <i data-lucide="bomb" class="w-6 h-6"></i>
@@ -484,6 +401,99 @@
             </div>
           </div>
 
+          <!-- 6. Zamana Karşı -->
+          <div class="game-card group" data-game="time-attack">
+            <div class="game-card-icon bg-red-500/10 text-red-400 group-hover:bg-red-500 group-hover:text-white">
+              <i data-lucide="timer" class="w-6 h-6"></i>
+            </div>
+            <h4 class="font-display font-bold text-lg text-white group-hover:text-red-300 transition">Zamana Karşı</h4>
+            <p class="text-slate-400 text-xs mt-1 leading-relaxed">60 saniyelik geri sayımda olabildiğince çok kelime bil; hızını ve reflekslerini test et.</p>
+            <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
+              <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="clock" class="w-3.5 h-3.5"></i> 60 Saniye</span>
+              <span class="text-xs font-semibold text-red-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
+            </div>
+          </div>
+
+          <!-- 7. Adam Asmaca -->
+          <div class="game-card group" data-game="hangman">
+            <div class="game-card-icon bg-indigo-500/10 text-indigo-400 group-hover:bg-indigo-500 group-hover:text-white">
+              <i data-lucide="user-x" class="w-6 h-6"></i>
+            </div>
+            <h4 class="font-display font-bold text-lg text-white group-hover:text-indigo-300 transition">Adam Asmaca</h4>
+            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Türkçe ipucu eşliğinde gizli İngilizce kelimeyi can hakların tükenmeden harf harf bul.</p>
+            <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
+              <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="heart" class="w-3.5 h-3.5"></i> Klasik Oyun</span>
+              <span class="text-xs font-semibold text-indigo-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
+            </div>
+          </div>
+
+          <!-- 8. Kolaydan Zora -->
+          <div class="game-card group border-emerald-500/40 bg-gradient-to-br from-slate-900 via-emerald-950/25 to-slate-900 hover:border-emerald-400 shadow-lg shadow-emerald-500/10" data-game="step-by-step-lessons">
+            <div class="game-card-icon bg-emerald-500/20 text-emerald-400 group-hover:bg-emerald-500 group-hover:text-slate-950">
+              <i data-lucide="graduation-cap" class="w-6 h-6"></i>
+            </div>
+            <div class="flex items-center justify-between">
+              <h4 class="font-display font-bold text-lg text-white group-hover:text-emerald-300 transition">Kolaydan Zora</h4>
+              <span id="user-current-level-badge" class="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950">Seviye 1</span>
+            </div>
+            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Tüm kelimeler YDS standardında (temel, orta, ileri akademik, çeldirici, phrasal/bağlaç) otomatik sınıflandırılır ve 5 seviyeye bölünür. Her seviyede 10 kelimeyi YDS bağlamlı örnek cümleler ve eş anlamlılarla öğren, ardından 5 şıklı boşluk doldurma testiyle %80 başarı sağlayarak bir üst seviyeye geç.</p>
+            <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
+              <span class="text-xs font-medium text-emerald-400 flex items-center gap-1"><i data-lucide="layers" class="w-3.5 h-3.5"></i> YDS Seviyeleri • 5 Kademe</span>
+              <span class="text-xs font-semibold text-emerald-400 group-hover:translate-x-1 transition flex items-center gap-1">Derslere Başla &rarr;</span>
+            </div>
+          </div>
+
+          <!-- 9. Eşleştirme -->
+          <div class="game-card group" data-game="matching">
+            <div class="game-card-icon bg-purple-500/10 text-purple-400 group-hover:bg-purple-500 group-hover:text-white">
+              <i data-lucide="combine" class="w-6 h-6"></i>
+            </div>
+            <h4 class="font-display font-bold text-lg text-white group-hover:text-purple-300 transition">Eşleştirme</h4>
+            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Karışık dizilmiş İngilizce ve Türkçe kutucukları doğru eşleştirerek tahtayı temizle.</p>
+            <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
+              <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="grid" class="w-3.5 h-3.5"></i> Hafıza & Hız</span>
+              <span class="text-xs font-semibold text-purple-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
+            </div>
+          </div>
+
+          <!-- 10. Doğru mu Yanlış mı? -->
+          <div class="game-card group" data-game="true-false">
+            <div class="game-card-icon bg-emerald-500/10 text-emerald-400 group-hover:bg-emerald-500 group-hover:text-white">
+              <i data-lucide="check-square" class="w-6 h-6"></i>
+            </div>
+            <h4 class="font-display font-bold text-lg text-white group-hover:text-emerald-300 transition">Doğru mu Yanlış mı?</h4>
+            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Ekrana gelen İngilizce ve Türkçe eşleşmenin doğru olup olmadığını hızlıca tespit et.</p>
+            <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
+              <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="zap" class="w-3.5 h-3.5"></i> Hızlı Karar</span>
+              <span class="text-xs font-semibold text-emerald-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
+            </div>
+          </div>
+
+          <!-- 11. El Yazısı (Kalem) -->
+          <div class="game-card group" data-game="handwriting">
+            <div class="game-card-icon bg-amber-500/10 text-amber-400 group-hover:bg-amber-500 group-hover:text-white">
+              <i data-lucide="pen-tool" class="w-6 h-6"></i>
+            </div>
+            <h4 class="font-display font-bold text-lg text-white group-hover:text-amber-300 transition">El Yazısı (Kalem)</h4>
+            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Türkçe anlamı verilen kelimenin İngilizcesini klavye ile harf harf doğru şekilde yaz.</p>
+            <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
+              <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="keyboard" class="w-3.5 h-3.5"></i> Yazım Pratiği</span>
+              <span class="text-xs font-semibold text-amber-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
+            </div>
+          </div>
+
+          <!-- 12. Telaffuz -->
+          <div class="game-card group" data-game="pronunciation">
+            <div class="game-card-icon bg-cyan-500/10 text-cyan-400 group-hover:bg-cyan-500 group-hover:text-white">
+              <i data-lucide="mic" class="w-6 h-6"></i>
+            </div>
+            <h4 class="font-display font-bold text-lg text-white group-hover:text-cyan-300 transition">Telaffuz</h4>
+            <p class="text-slate-400 text-xs mt-1 leading-relaxed">Kelimeyi İngilizce dinle ve mikrofona basarak doğru telaffuz etmeye çalış (Web Speech API).</p>
+            <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
+              <span class="text-xs font-medium text-slate-400 flex items-center gap-1"><i data-lucide="volume-2" class="w-3.5 h-3.5"></i> Sesli Tanıma</span>
+              <span class="text-xs font-semibold text-cyan-400 group-hover:translate-x-1 transition flex items-center gap-1">Başla &rarr;</span>
+            </div>
+          </div>
         </div>
       </section>
 
