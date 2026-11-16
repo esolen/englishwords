@@ -1,4 +1,4 @@
-const { getPool, ensureTables } = require('./_db');
+const { getPool, ensureTables, backfillYdsLevels } = require('./_db');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
@@ -29,8 +29,19 @@ module.exports = async function handler(req, res) {
 
   try {
     await ensureTables();
+
+    // YDS alanları atanmamış kelimeler varsa kalıcı olarak zenginleştir.
+    // (Veri kaybı yok; yalnızca boş yds_level/part_of_speech/synonyms alanları doldurulur.)
+    try {
+      await backfillYdsLevels(pool, { userId, force: false });
+    } catch (enrichErr) {
+      console.warn('YDS enrichment skipped:', enrichErr.message);
+    }
+
     const result = await pool.query(
-      'SELECT id, english, turkish, pronunciation, example_en, example_tr, pos FROM user_words WHERE user_id = $1 ORDER BY id DESC',
+      `SELECT id, english, turkish, pronunciation, example_en, example_tr, pos,
+              yds_level, part_of_speech, synonyms
+         FROM user_words WHERE user_id = $1 ORDER BY id DESC`,
       [userId]
     );
 
@@ -41,7 +52,10 @@ module.exports = async function handler(req, res) {
       pronunciation: r.pronunciation || '',
       example_en: r.example_en || '',
       example_tr: r.example_tr || '',
-      pos: r.pos || ''
+      pos: r.part_of_speech || r.pos || '',
+      yds_level: Number(r.yds_level) >= 1 && Number(r.yds_level) <= 5 ? Number(r.yds_level) : 1,
+      part_of_speech: r.part_of_speech || r.pos || '',
+      synonyms: Array.isArray(r.synonyms) ? r.synonyms : []
     }));
 
     return res.status(200).json({

@@ -20,7 +20,13 @@ Vercel serverless fonksiyonları (`api/*.js`) + Neon PostgreSQL backend.
 - `api/lessons/index.js` — GET (ders üret) / POST (sonuç, seviye ilerlemesi, reset).
 - `api/lessons/_engine.js` — SAF motor: zorluk sınıflandırma, örnek cümle, 5 şıklı test,
   tekrarsız seçim. **Hardcoded kelime dizisi içermez**; havuz çağıran taraftan gelir.
-- `api/_db.js` — `getPool`, `ensureTables`, `parseBody`.
+  Kelimede kalıcı `yds_level` (1..5) varsa seviye bölünmesi doğrudan onu kullanır.
+- `api/_yds.js` — **YDS sınıflandırma & zenginleştirme motoru** (saf, DB'siz):
+  `yds_level` (1..5), `part_of_speech`, `synonyms`, YDS bağlamlı doğal `example_en/tr`.
+  `classifyWord(word, allWords)` tek giriş noktasıdır.
+- `api/_db.js` — `getPool`, `ensureTables`, `parseBody`, `backfillYdsLevels`, `ydsDistribution`.
+- `scripts/backfill-yds.js` — kalıcı migrasyon: `DATABASE_URL=... node scripts/backfill-yds.js`
+  (`--user`, `--force`, `--dry-run`). Hiçbir satırı SİLMEZ; yalnızca YDS alanlarını doldurur.
 
 ## Kritik kurallar
 
@@ -37,6 +43,9 @@ Vercel serverless fonksiyonları (`api/*.js`) + Neon PostgreSQL backend.
 - Seviye ilerlemesi yalnızca sunucu `leveled_up` döndüğünde (ilgili seviyenin TÜM kelimeleri
   tamamlanınca) yükselir; başarılı ama eksik testte aynı seviyede sonraki 10 kelime gelir.
 - Test/quiz sırası Fisher-Yates ile karıştırılır; şık sırası da her soruda karışır.
+- Kelime Bombası fitili **`Date.now()` bazlı geri sayım** kullanır (`startFuse`): `endTime = now + süre*1000`.
+  Süre asla `step = duration * (tickMs/1000)` gibi çarpılarak hesaplanmaz — bu eski hata tüm süreleri
+  ~1 saniyede bitiriyordu. Seçilen süre `selectedFuseDuration`'da tutulur ve her soruda sıfırlanır.
 
 ## Test / doğrulama
 

@@ -3110,7 +3110,8 @@ class WordBombGame {
     this.maxCombo = 0;
 
     this.question = null;   // { word, correct, options:[{text,correct}] }
-    this.duration = 15;     // Fitil süresi (saniye) — başlangıçta seçilir
+    this.duration = 15;     // Aktif turun fitil süresi (saniye)
+    this.selectedFuseDuration = 15; // Kullanıcının seçtiği merkezi fitil süresi
     this.remaining = 15;
     this.fuseTimer = null;
     this.locked = false;    // Cevap verildikten sonra kilit
@@ -3186,8 +3187,11 @@ class WordBombGame {
 
   // --- Seçilen Fitil Süresi ile Oyunu Başlat ---
   startGame(seconds) {
-    this.duration = seconds;
-    this.remaining = seconds;
+    // Seçilen süreyi merkezi değişkene sayısal olarak ata
+    const sec = Number(seconds);
+    this.selectedFuseDuration = Number.isFinite(sec) && sec > 0 ? sec : 15;
+    this.duration = this.selectedFuseDuration;
+    this.remaining = this.selectedFuseDuration;
     this.lives = this.maxLives;
     this.score = 0;
     this.correctCount = 0;
@@ -3249,7 +3253,9 @@ class WordBombGame {
 
     this.question = q;
     this.locked = false;
-    this.remaining = this.duration;
+    // Her yeni soruda süre mutlaka seçilen fitil süresinden başlar
+    this.duration = this.selectedFuseDuration;
+    this.remaining = this.selectedFuseDuration;
 
     this.renderQuestion();
     this.startFuse();
@@ -3312,7 +3318,7 @@ class WordBombGame {
     const bar = document.getElementById('game-fuse-bar');
     if (bar) bar.style.width = '100%';
     const lbl = document.getElementById('game-fuse-label');
-    if (lbl) lbl.textContent = String(Math.ceil(this.duration));
+    if (lbl) lbl.textContent = String(Math.ceil(this.selectedFuseDuration || this.duration));
   }
 
   renderNoWords() {
@@ -3403,23 +3409,45 @@ class WordBombGame {
   // Fitil (süre çubuğu)
   // ---------------------------------------------------------------------------
   startFuse() {
+    // Önceki zamanlayıcıyı mutlaka temizle (üst üste binen interval'leri önler)
     this.stopFuse();
-    const tickMs = 100;
-    const step = this.duration * (tickMs / 1000); // her tick'te azalan saniye
-    this.fuseTimer = setInterval(() => {
-      if (this.locked || this.finished || this.lives <= 0) return;
-      this.remaining -= step;
-      const pct = Math.max(0, (this.remaining / this.duration) * 100);
+
+    // Süreyi mutlaka seçilen fitil süresinden al (eski sabit değer kullanılmaz)
+    const seconds = Number(this.selectedFuseDuration) > 0
+      ? Number(this.selectedFuseDuration)
+      : Number(this.duration) || 15;
+    const totalMs = seconds * 1000;
+
+    const startTime = Date.now();
+    const endTime = startTime + totalMs;
+    this.fuseEndTime = endTime;
+    this.duration = seconds;
+    this.remaining = seconds;
+
+    const render = () => {
+      const now = Date.now();
+      const leftMs = Math.max(0, endTime - now);
+      const pct = (leftMs / totalMs) * 100;
       const bar = document.getElementById('game-fuse-bar');
       if (bar) bar.style.width = `${pct}%`;
       const lbl = document.getElementById('game-fuse-label');
-      if (lbl) lbl.textContent = String(Math.ceil(Math.max(0, this.remaining)));
-      if (this.remaining <= 0) this.timeout();
-    }, tickMs);
+      if (lbl) lbl.textContent = String(Math.ceil(leftMs / 1000));
+      this.remaining = leftMs / 1000;
+      return leftMs;
+    };
+
+    render();
+
+    this.fuseTimer = setInterval(() => {
+      if (this.locked || this.finished || this.lives <= 0) return;
+      const leftMs = render();
+      if (leftMs <= 0) this.timeout();
+    }, 100);
   }
 
   stopFuse() {
     if (this.fuseTimer) { clearInterval(this.fuseTimer); this.fuseTimer = null; }
+    this.fuseEndTime = null;
   }
 
   timeout() {
@@ -3719,6 +3747,11 @@ class StepByStepLessonsGame {
     const total = wordsList.length;
     const meta = this.sessionMeta || {};
     const isStudyListed = WordStore.isInStudyList(word.english);
+    const ydsLevel = Number(word.yds_level) >= 1 && Number(word.yds_level) <= this.TOTAL_LEVELS
+      ? Number(word.yds_level)
+      : this.currentLevel;
+    const posLabel = this.posLabel(word.part_of_speech || word.pos);
+    const synonyms = Array.isArray(word.synonyms) ? word.synonyms : [];
     updateGameScore(this.knownCount);
 
     stage.innerHTML = `
@@ -3747,6 +3780,10 @@ class StepByStepLessonsGame {
               <div class="my-auto text-center py-1 sm:py-2">
                 <h2 class="text-2xl sm:text-4xl font-extrabold text-white mb-1 font-display tracking-tight">${word.english}</h2>
                 <p class="text-xs sm:text-base font-mono text-slate-400">${word.pronunciation ? `[${word.pronunciation}]` : ''}</p>
+                <div class="flex items-center justify-center gap-1.5 mt-2 flex-wrap">
+                  <span class="text-[10px] sm:text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold">YDS Seviye ${ydsLevel}</span>
+                  <span class="text-[10px] sm:text-[11px] px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-300 border border-slate-600 font-medium">${posLabel}</span>
+                </div>
               </div>
 
               <div class="w-full pt-2 sm:pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
@@ -3774,6 +3811,12 @@ class StepByStepLessonsGame {
                       <i data-lucide="quote" class="w-3.5 h-3.5 inline -mt-0.5 mr-1 text-blue-200"></i>${word.example_en}
                     </p>
                     <p class="text-[10px] sm:text-xs text-blue-200/80 mt-1 italic">${word.example_tr || ''}</p>
+                  </div>
+                ` : ''}
+                ${synonyms.length > 0 ? `
+                  <div class="mt-2.5 pt-2 border-t border-blue-400/20 text-left">
+                    <p class="text-[10px] uppercase tracking-wider text-blue-300/80 font-semibold mb-1">Eş Anlamlılar (Synonym)</p>
+                    <p class="text-[10px] sm:text-xs text-blue-100/90 leading-relaxed">${synonyms.join(' · ')}</p>
                   </div>
                 ` : ''}
               </div>
@@ -3907,6 +3950,15 @@ class StepByStepLessonsGame {
     const all = WordStore.getAllWords();
     const found = all.find(w => w.en.toLowerCase() === String(word.english).toLowerCase());
     return found ? found.id : null;
+  }
+
+  // İngilizce kelime türünü Türkçe etikete çevirir
+  posLabel(pos) {
+    const map = {
+      'Verb': 'Fiil', 'Noun': 'İsim', 'Adj': 'Sıfat', 'Adv': 'Zarf',
+      'Phrasal Verb': 'Deyimsel Fiil', 'Conjunction': 'Bağlaç', 'Preposition': 'Edat'
+    };
+    return map[pos] || (pos || 'Kelime');
   }
 
   advanceCard(total) {
@@ -4407,7 +4459,10 @@ const AuthStore = {
             ipa: w.pronunciation || w.ipa || '',
             example_en: w.example_en || '',
             example_tr: w.example_tr || '',
-            pos: w.pos || '',
+            pos: w.pos || w.part_of_speech || '',
+            ydsLevel: Number(w.yds_level) >= 1 && Number(w.yds_level) <= 5 ? Number(w.yds_level) : 1,
+            partOfSpeech: w.part_of_speech || w.pos || '',
+            synonyms: Array.isArray(w.synonyms) ? w.synonyms : [],
             wrongCount: 0
           }));
         }

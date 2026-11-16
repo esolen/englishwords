@@ -62,6 +62,13 @@ async function ensureTables() {
     ALTER TABLE user_words ADD COLUMN IF NOT EXISTS example_tr TEXT DEFAULT '';
     ALTER TABLE user_words ADD COLUMN IF NOT EXISTS pos VARCHAR(50) DEFAULT '';
 
+    -- YDS (Yabancı Dil Bilgisi Seviye Tespit Sınavı) bazlı kalıcı sınıflandırma alanları
+    ALTER TABLE user_words ADD COLUMN IF NOT EXISTS yds_level INTEGER DEFAULT 0;
+    ALTER TABLE user_words ADD COLUMN IF NOT EXISTS part_of_speech VARCHAR(50) DEFAULT '';
+    ALTER TABLE user_words ADD COLUMN IF NOT EXISTS synonyms JSONB DEFAULT '[]'::jsonb;
+
+    CREATE INDEX IF NOT EXISTS idx_user_words_yds_level ON user_words(user_id, yds_level);
+
     CREATE TABLE IF NOT EXISTS user_statistics (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -124,6 +131,94 @@ function normalizeWordKey(value) {
 }
 
 /**
+ * YDS sınıflandırma zenginleştirmesi (kalıcı, veri kaybı olmadan).
+ *
+ * Veritabanındaki tüm kelimeleri _yds motoruyla sınıflandırır ve şu alanları
+ * günceller: yds_level, part_of_speech, synonyms, example_en, example_tr.
+ * - Hiçbir satır SİLİNMEZ; yalnızca boş/yapay alanlar doldurulur.
+ * - Kullanıcının elle girdiği dolu örnek cümleler ve tüm diğer alanlar korunur.
+ * - `force=false` iken yalnızca yds_level atanmamış (0) kelimeler işlenir.
+ *
+ * @returns {{ scanned:number, updated:number, distribution:Object }}
+ */
+async function backfillYdsLevels(pool, { userId = null, force = false } = {}) {
+  const yds = require('./_yds');
+
+  const where = ['(yds_level IS NULL OR yds_level = 0 OR $1::boolean = true)'];
+  const params = [force];
+  if (userId) {
+    where.push(`user_id = $${params.length + 1}`);
+    params.push(userId);
+  }
+
+  const selectSql = `
+    SELECT id, user_id, english, turkish, pronunciation, example_en, example_tr, pos
+      FROM user_words
+     WHERE ${where.join(' AND ')}
+     ORDER BY id ASC
+  `;
+
+  const rows = (await pool.query(selectSql, params)).rows;
+  const distribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+
+  if (rows.length === 0) {
+    // Yine de mevcut dağılımı raporla
+    const dist = await ydsDistribution(pool, userId);
+    return { scanned: 0, updated: 0, distribution: dist };
+  }
+
+  // Eş anlamlı eşleştirmesi için tüm havuzu (kullanıcı bazlı) yükle
+  const poolSql = userId
+    ? 'SELECT english, turkish FROM user_words WHERE user_id = $1'
+    : 'SELECT english, turkish FROM user_words';
+  const allWords = (await pool.query(poolSql, userId ? [userId] : [])).rows;
+
+  let updated = 0;
+  for (const row of rows) {
+    const result = yds.classifyWord(row, allWords);
+    distribution[result.yds_level] = (distribution[result.yds_level] || 0) + 1;
+    await pool.query(
+      `UPDATE user_words
+          SET yds_level = $1, part_of_speech = $2, synonyms = $3,
+              example_en = $4, example_tr = $5, pos = CASE WHEN pos IS NULL OR pos = '' THEN $2 ELSE pos END
+        WHERE id = $6`,
+      [
+        result.yds_level,
+        result.part_of_speech,
+        JSON.stringify(result.synonyms),
+        result.example_en,
+        result.example_tr,
+        row.id
+      ]
+    );
+    updated++;
+  }
+
+  const fullDist = await ydsDistribution(pool, userId);
+  return { scanned: rows.length, updated, distribution: fullDist };
+}
+
+/**
+ * Kullanıcı bazında (veya tümü için) YDS seviye dağılımını döndürür.
+ */
+async function ydsDistribution(pool, userId = null) {
+  const params = [];
+  let where = 'yds_level BETWEEN 1 AND 5';
+  if (userId) {
+    params.push(userId);
+    where += ' AND user_id = $1';
+  }
+  const res = await pool.query(
+    `SELECT yds_level, COUNT(*)::int AS count FROM user_words WHERE ${where} GROUP BY yds_level ORDER BY yds_level`,
+    params
+  );
+  const dist = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  let total = 0;
+  res.rows.forEach(r => { dist[r.yds_level] = r.count; total += r.count; });
+  return { levels: dist, total };
+}
+
+/**
  * Yanlış cevaplanan kelimeleri kullanıcının "Zorlu Kelimeler" istatistiğine işler.
  * Her kelime için wrong_counts +1 artırılır ve wrong_words listesine eklenir.
  * Hem api/statistics/update.js hem de api/lessons/index.js bu yardımcıyı kullanır.
@@ -176,5 +271,7 @@ module.exports = {
   getPool,
   ensureTables,
   parseBody,
-  incrementWrongWords
+  incrementWrongWords,
+  backfillYdsLevels,
+  ydsDistribution
 };

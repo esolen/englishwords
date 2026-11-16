@@ -1,4 +1,5 @@
 const { getPool, ensureTables, parseBody } = require('../_db');
+const yds = require('../_yds');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
@@ -26,18 +27,28 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ success: false, error: 'Eklenecek kelime listesi boş.' });
     }
 
-    // Filtreleme ve temizleme
+    // Filtreleme ve temizleme + YDS sınıflandırması
     const validWords = [];
     for (const w of words) {
       const english = (w.english || '').trim();
       const turkish = (w.turkish || '').trim();
       const pronunciation = (w.pronunciation || '').trim();
-      const example_en = (w.example_en || '').trim();
-      const example_tr = (w.example_tr || '').trim();
       const pos = (w.pos || '').trim();
-      if (english && turkish) {
-        validWords.push({ english, turkish, pronunciation, example_en, example_tr, pos });
-      }
+      if (!english || !turkish) continue;
+
+      // YDS meta alanlarını otomatik üret (kullanıcı vermediyse)
+      const cls = yds.classifyWord({ english, turkish, pos, example_en: w.example_en, example_tr: w.example_tr }, words);
+      const example_en = (w.example_en || '').trim() || cls.example_en;
+      const example_tr = (w.example_tr || '').trim() || cls.example_tr;
+      const part_of_speech = pos || cls.part_of_speech;
+      const yds_level = Number.isInteger(w.yds_level) && w.yds_level >= 1 && w.yds_level <= 5
+        ? w.yds_level
+        : cls.yds_level;
+
+      validWords.push({
+        english, turkish, pronunciation, example_en, example_tr, pos: part_of_speech,
+        yds_level, part_of_speech, synonyms: cls.synonyms
+      });
     }
 
     if (validWords.length === 0) {
@@ -45,21 +56,24 @@ module.exports = async function handler(req, res) {
     }
 
     // Toplu ekleme için multi-row parameterized INSERT sorgusu oluşturma
-    // ($1, $2, $3, $4, $5, $6, $7), ($1, $8, ...), ...
+    // Her satır: (user_id, english, turkish, pronunciation, example_en, example_tr, pos, yds_level, part_of_speech, synonyms)
     const valuePlaceholders = [];
     const values = [userId];
     let paramCounter = 2;
 
     for (const w of validWords) {
       valuePlaceholders.push(
-        `($1, $${paramCounter}, $${paramCounter + 1}, $${paramCounter + 2}, $${paramCounter + 3}, $${paramCounter + 4}, $${paramCounter + 5})`
+        `($1, $${paramCounter}, $${paramCounter + 1}, $${paramCounter + 2}, $${paramCounter + 3}, $${paramCounter + 4}, $${paramCounter + 5}, $${paramCounter + 6}, $${paramCounter + 7}, $${paramCounter + 8})`
       );
-      values.push(w.english, w.turkish, w.pronunciation, w.example_en, w.example_tr, w.pos);
-      paramCounter += 6;
+      values.push(
+        w.english, w.turkish, w.pronunciation, w.example_en, w.example_tr, w.pos,
+        w.yds_level, w.part_of_speech, JSON.stringify(w.synonyms || [])
+      );
+      paramCounter += 9;
     }
 
     const insertQuery = `
-      INSERT INTO user_words (user_id, english, turkish, pronunciation, example_en, example_tr, pos)
+      INSERT INTO user_words (user_id, english, turkish, pronunciation, example_en, example_tr, pos, yds_level, part_of_speech, synonyms)
       VALUES ${valuePlaceholders.join(', ')}
     `;
 
