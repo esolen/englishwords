@@ -291,12 +291,13 @@ async function handlePost(req, res, pool) {
   const levelKeys = levelWords.map(w => normalizeWord(w.english));
   const levelComplete = levelKeys.length > 0 && levelKeys.every(key => completedSet.has(key));
 
-  // Seviye ilerlemesi: yalnızca başarılı testte bir üst seviye açılır
+  // Seviye ilerlemesi: yalnızca başarılı testte VE ilgili seviyedeki tüm
+  // kelimeler tamamlandığında bir üst seviyeye geçilir. Aksi halde kullanıcı
+  // aynı seviyede bir sonraki 10 yeni kelimeye devam eder.
   let newLevel = progress.level_number;
   let leveledUp = false;
-  if (passed) {
-    const candidate = Math.min(completedLevel + 1, LEVEL_COUNT);
-    newLevel = Math.max(candidate, progress.level_number);
+  if (passed && levelComplete && completedLevel < LEVEL_COUNT) {
+    newLevel = Math.max(completedLevel + 1, progress.level_number);
     leveledUp = newLevel > progress.level_number;
   }
 

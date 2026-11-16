@@ -27,7 +27,7 @@
   <!-- Tesseract.js (El Yazısı OCR Motoru) CDN -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <!-- Yerel Stiller (Cache Busting v=2.0) -->
-  <link rel="stylesheet" href="style.css?v=2.2">
+  <link rel="stylesheet" href="style.css?v=2.3">
   <script>
     tailwind.config = {
       theme: {
@@ -566,6 +566,11 @@
 
         <!-- Modal Body (8 Mini Oyun Grid) -->
         <div class="p-5 overflow-y-auto flex-grow">
+          <!-- Aktif kelime havuzu bilgi şeridi (app.js tarafından güncellenir) -->
+          <div id="arcade-pool-banner" class="hidden mb-4 p-3 rounded-xl bg-brand-950/40 border border-brand-500/30 text-xs text-brand-200 flex items-center gap-2">
+            <i data-lucide="info" class="w-4 h-4 text-brand-400 shrink-0"></i>
+            <span id="arcade-pool-banner-text">Aktif kelime havuzu bilgisi</span>
+          </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 
             <!-- 1. Wordle -->
@@ -776,6 +781,6 @@
   <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
 
   <!-- Yerel Uygulama Scripti (Cache Busting v=2.0) -->
-  <script src="app.js?v=2.2"></script>
+  <script src="app.js?v=2.3"></script>
 </body>
 </html>
