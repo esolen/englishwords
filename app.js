@@ -8,13 +8,27 @@ const WordStore = {
   words: [],
   studyList: new Set(), // Kullanıcının seçtiği özel kelimeler (english lowercase)
   useOnlyStudyList: false, // "Sadece Seçtiğim Kelimelerle Çalış" Filtresi
+  posFilter: 'all', // Global Kelime Türü Filtresi: 'all' | 'Verb' | 'Noun' | 'Adj' | ...
   DIFFICULT_THRESHOLD: 1,
 
   getWords() {
-    if (this.useOnlyStudyList) {
-      return (this.words || []).filter(w => this.studyList.has(w.en.toLowerCase()));
+    // 1) Bozuk/eksik alanlı kayıtları ayıkla (arayüz çökmesin)
+    let list = (this.words || []).filter(w => w && w.en != null && String(w.en).trim() !== '' && w.tr != null);
+
+    // 2) Global Kelime Türü Filtresi — 'all' iken HİÇBİR filtreleme yapılmaz
+    if (this.posFilter && this.posFilter !== 'all') {
+      const target = String(this.posFilter).toLowerCase();
+      list = list.filter(w => {
+        const pos = (typeof resolveWordPos === 'function' ? resolveWordPos(w) : (w.partOfSpeech || w.pos || '')) || '';
+        return String(pos).toLowerCase() === target;
+      });
     }
-    return this.words || [];
+
+    // 3) "Sadece Seçtiğim Kelimelerle Çalış" filtresi
+    if (this.useOnlyStudyList) {
+      list = list.filter(w => this.studyList.has(String(w.en).toLowerCase()));
+    }
+    return list;
   },
 
   getAllWords() {
@@ -22,7 +36,9 @@ const WordStore = {
   },
 
   setWords(newWords) {
-    this.words = Array.isArray(newWords) ? newWords : [];
+    // Bozuk/eksik alanlı kayıtlar arayüzü çökertmesin: yalnızca geçerli kelimeleri sakla
+    const arr = Array.isArray(newWords) ? newWords : [];
+    this.words = arr.filter(w => w && w.en != null && String(w.en).trim() !== '');
     this.notifyUpdate();
   },
 
@@ -152,8 +168,12 @@ const WordStore = {
   },
 
   notifyUpdate() {
-    if (typeof updateHeaderBadges === 'function') {
-      updateHeaderBadges();
+    try {
+      if (typeof updateHeaderBadges === 'function') {
+        updateHeaderBadges();
+      }
+    } catch (err) {
+      console.warn('Arayüz güncelleme uyarısı (kelime verisi korunuyor):', err);
     }
     const emptyBanner = document.getElementById('empty-library-banner');
     if (emptyBanner) {
@@ -374,7 +394,7 @@ function renderWordsTable(filterText = '') {
 
   const query = (filterText || '').toLowerCase().trim();
   const filtered = query
-    ? words.filter(w => w.en.toLowerCase().includes(query) || w.tr.toLowerCase().includes(query))
+    ? words.filter(w => String(w.en || '').toLowerCase().includes(query) || String(w.tr || '').toLowerCase().includes(query))
     : words;
 
   if (filtered.length === 0) {
@@ -614,6 +634,26 @@ function setupModals() {
     });
   }
 
+  // Global Kelime Türü Filtresi (part_of_speech) — 'all' iken filtreleme yapılmaz
+  const posFilterSelect = document.getElementById('global-pos-filter');
+  if (posFilterSelect) {
+    try {
+      const savedPos = localStorage.getItem('global_pos_filter_v1');
+      if (savedPos) { posFilterSelect.value = savedPos; WordStore.posFilter = savedPos; }
+    } catch (e) { /* yoksay */ }
+    posFilterSelect.addEventListener('change', (e) => {
+      WordStore.posFilter = e.target.value || 'all';
+      try { localStorage.setItem('global_pos_filter_v1', WordStore.posFilter); } catch (err) { /* yoksay */ }
+      const count = WordStore.getWords().length;
+      if (WordStore.posFilter === 'all') {
+        showToast('Kelime türü filtresi kaldırıldı (Tümü).', 'info');
+      } else {
+        showToast(`Kelime türü filtresi: ${posLabelTr(WordStore.posFilter)} (${count} kelime)`, 'success');
+      }
+      updateHeaderBadges();
+    });
+  }
+
   // Yatay Kaydırılabilir Sekmeler Dinleyicisi (Swipeable Tabs Filter)
   const tabButtons = document.querySelectorAll('.category-tab-btn');
   tabButtons.forEach(btn => {
@@ -681,6 +721,286 @@ function setupModals() {
   }
 }
 
+// ============================================================================
+// DASHBOARD KART DÜZENİ (SIRALAMA + KİLİT) — Düzenleme modu, drag & drop, kalıcı hafıza
+// ============================================================================
+const DashboardLayoutUI = {
+  editing: false,
+  dragEl: null,
+  touchEl: null,
+
+  grid() { return document.getElementById('game-modules-grid'); },
+
+  cards() {
+    const g = this.grid();
+    return g ? Array.from(g.querySelectorAll('.game-card[data-game]')) : [];
+  },
+
+  gameIdOf(card) { return card ? (card.getAttribute('data-game') || '') : ''; },
+
+  // Kaydedilmiş sırayı uygula; bilinmeyen kartlar sona eklenir
+  applyOrder() {
+    const g = this.grid();
+    if (!g) return;
+    const cards = this.cards();
+    if (cards.length === 0) return;
+    const byId = new Map(cards.map(c => [this.gameIdOf(c), c]));
+    const ordered = [];
+    (DashboardLayout.order || []).forEach(id => {
+      if (byId.has(id)) {
+        ordered.push(byId.get(id));
+        byId.delete(id);
+      }
+    });
+    byId.forEach(c => ordered.push(c)); // yeni/kaydedilmemiş kartlar sona
+    ordered.forEach(c => g.appendChild(c));
+  },
+
+  captureOrder() {
+    DashboardLayout.order = this.cards().map(c => this.gameIdOf(c));
+    DashboardLayout.save();
+  },
+
+  // Her karta kilit düğmesi ekle (yoksa)
+  ensureLockButtons() {
+    this.cards().forEach(card => {
+      if (card.querySelector(':scope > .card-lock-btn')) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'card-lock-btn';
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        if (!this.editing) return;
+        const id = this.gameIdOf(card);
+        const locked = DashboardLayout.toggleLock(id);
+        this.refreshCardState(card);
+        AudioService.playSfx('click');
+        showToast(locked ? `"${this.cardTitle(card)}" sabitlendi 🔒` : `"${this.cardTitle(card)}" kilidi açıldı 🔓`, 'info');
+      });
+      card.appendChild(btn);
+    });
+  },
+
+  cardTitle(card) {
+    const h = card.querySelector('h4');
+    return h ? h.textContent.trim() : (this.gameIdOf(card));
+  },
+
+  refreshCardState(card) {
+    const id = this.gameIdOf(card);
+    const locked = DashboardLayout.isLocked(id);
+    card.classList.toggle('card-locked', locked);
+    card.classList.toggle('card-draggable', this.editing && !locked);
+    card.setAttribute('draggable', this.editing && !locked ? 'true' : 'false');
+    const btn = card.querySelector(':scope > .card-lock-btn');
+    if (btn) {
+      btn.innerHTML = locked ? '🔒' : '🔓';
+      btn.title = locked ? 'Kilidi Aç' : 'Sabitle (Kilitle)';
+      btn.classList.toggle('locked', locked);
+    }
+  },
+
+  refreshAll() {
+    this.cards().forEach(c => this.refreshCardState(c));
+  },
+
+  setEditing(on) {
+    this.editing = on;
+    document.body.classList.toggle('dashboard-editing', on);
+    const toggle = document.getElementById('dashboard-edit-toggle');
+    if (toggle) {
+      toggle.innerHTML = on
+        ? '<i data-lucide="lock" class="w-4 h-4"></i> 🔒 Düzeni Kilitle'
+        : '<i data-lucide="unlock" class="w-4 h-4"></i> 🔓 Kartları Düzenle';
+      toggle.classList.toggle('active', on);
+    }
+    const resetBtn = document.getElementById('dashboard-reset-layout');
+    if (resetBtn) resetBtn.classList.toggle('hidden', !on);
+    const hint = document.getElementById('dashboard-edit-hint');
+    if (hint) hint.classList.toggle('hidden', !on);
+    this.refreshAll();
+    if (window.lucide) window.lucide.createIcons();
+  },
+
+  toggleEditing() {
+    this.setEditing(!this.editing);
+    if (this.editing) {
+      showToast('Düzenleme modu açık: kartları sürükleyin, 🔒 ile sabitleyin.', 'info');
+    } else {
+      this.captureOrder();
+      showToast('Düzen kilitlendi ve kaydedildi.', 'success');
+    }
+  },
+
+  resetLayout() {
+    DashboardLayout.reset();
+    // DOM sırasını varsayılana döndür: data-game sırasına göre yeniden diz
+    const g = this.grid();
+    if (g) {
+      const cards = this.cards();
+      cards.sort((a, b) => {
+        const ai = DEFAULT_CARD_ORDER.indexOf(this.gameIdOf(a));
+        const bi = DEFAULT_CARD_ORDER.indexOf(this.gameIdOf(b));
+        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+      });
+      cards.forEach(c => g.appendChild(c));
+    }
+    this.refreshAll();
+    showToast('Varsayılan sıraya dönüldü.', 'info');
+  },
+
+  // --- Sürükleme (HTML5 DnD) ---
+  onDragStart(e) {
+    if (!this.editing) return;
+    const card = e.target.closest('.game-card[data-game]');
+    if (!card || DashboardLayout.isLocked(this.gameIdOf(card))) {
+      e.preventDefault();
+      return;
+    }
+    this.dragEl = card;
+    card.classList.add('dragging');
+    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', this.gameIdOf(card)); } catch (err) {}
+  },
+
+  onDragOver(e) {
+    if (!this.editing || !this.dragEl) return;
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
+    const target = e.target.closest('.game-card[data-game]');
+    this.cards().forEach(c => c.classList.remove('drag-over'));
+    if (target && target !== this.dragEl && !DashboardLayout.isLocked(this.gameIdOf(target))) {
+      target.classList.add('drag-over');
+    }
+  },
+
+  onDrop(e) {
+    if (!this.editing || !this.dragEl) return;
+    e.preventDefault();
+    const target = e.target.closest('.game-card[data-game]');
+    if (target && target !== this.dragEl && !DashboardLayout.isLocked(this.gameIdOf(target))) {
+      this.moveCard(this.dragEl, target);
+      this.captureOrder();
+    }
+    this.cleanupDrag();
+  },
+
+  onDragEnd() { this.cleanupDrag(); },
+
+  cleanupDrag() {
+    this.cards().forEach(c => c.classList.remove('drag-over', 'dragging'));
+    this.dragEl = null;
+  },
+
+  // dragging kartını target konumuna taşı (grid sırası içinde)
+  moveCard(dragging, target) {
+    const g = this.grid();
+    if (!g || !dragging || !target || dragging === target) return;
+    const cards = this.cards();
+    const fromIdx = cards.indexOf(dragging);
+    const toIdx = cards.indexOf(target);
+    if (fromIdx === -1 || toIdx === -1) return;
+    if (fromIdx < toIdx) {
+      target.parentNode.insertBefore(dragging, target.nextSibling);
+    } else {
+      target.parentNode.insertBefore(dragging, target);
+    }
+    dragging.classList.add('drag-settled');
+    setTimeout(() => dragging.classList.remove('drag-settled'), 300);
+  },
+
+  // --- Dokunmatik (touch) sürükleme ---
+  onTouchStart(e) {
+    if (!this.editing) return;
+    const card = e.target.closest('.game-card[data-game]');
+    if (!card || DashboardLayout.isLocked(this.gameIdOf(card))) return;
+    if (e.target.closest('.card-lock-btn')) return;
+    this.touchEl = card;
+    card.classList.add('dragging');
+  },
+
+  onTouchMove(e) {
+    if (!this.editing || !this.touchEl) return;
+    const t = e.touches[0];
+    if (!t) return;
+    e.preventDefault();
+    const el = document.elementFromPoint(t.clientX, t.clientY);
+    const target = el ? el.closest('.game-card[data-game]') : null;
+    this.cards().forEach(c => c.classList.remove('drag-over'));
+    if (target && target !== this.touchEl && !DashboardLayout.isLocked(this.gameIdOf(target))) {
+      target.classList.add('drag-over');
+    }
+  },
+
+  onTouchEnd(e) {
+    if (!this.editing || !this.touchEl) return;
+    const t = (e.changedTouches && e.changedTouches[0]) || null;
+    let target = null;
+    if (t) {
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      target = el ? el.closest('.game-card[data-game]') : null;
+    }
+    if (target && target !== this.touchEl && !DashboardLayout.isLocked(this.gameIdOf(target))) {
+      this.moveCard(this.touchEl, target);
+      this.captureOrder();
+    }
+    this.touchEl.classList.remove('dragging');
+    this.cards().forEach(c => c.classList.remove('drag-over'));
+    this.touchEl = null;
+  },
+
+  // --- Kurulum ---
+  init() {
+    const g = this.grid();
+    if (!g) return;
+    DashboardLayout.load();
+    this.applyOrder();
+    this.ensureLockButtons();
+    this.setEditing(false);
+
+    // Düzenleme toggle butonu + sıfırlama butonunu grid başlığına ekle
+    this.injectControls();
+
+    g.addEventListener('dragstart', (e) => this.onDragStart(e));
+    g.addEventListener('dragover', (e) => this.onDragOver(e));
+    g.addEventListener('drop', (e) => this.onDrop(e));
+    g.addEventListener('dragend', () => this.onDragEnd());
+    g.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: true });
+    g.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
+    g.addEventListener('touchend', (e) => this.onTouchEnd(e));
+    g.addEventListener('touchcancel', () => { if (this.touchEl) { this.touchEl.classList.remove('dragging'); this.touchEl = null; } });
+  },
+
+  injectControls() {
+    if (document.getElementById('dashboard-edit-toggle')) return;
+    const anchor = document.getElementById('dashboard-layout-controls-anchor');
+    if (!anchor) return;
+    anchor.innerHTML = `
+      <div class="flex items-center gap-2">
+        <span id="dashboard-edit-hint" class="hidden text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2.5 py-1">Sürükle-bırak ile sırala • 🔒 ile sabitle</span>
+        <button id="dashboard-reset-layout" class="hidden px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-slate-700 transition flex items-center gap-1.5">
+          <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Varsayılan Sıraya Dön
+        </button>
+        <button id="dashboard-edit-toggle" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-slate-700 transition flex items-center gap-1.5">
+          <i data-lucide="unlock" class="w-4 h-4"></i> 🔓 Kartları Düzenle
+        </button>
+      </div>
+    `;
+    const toggle = document.getElementById('dashboard-edit-toggle');
+    if (toggle) toggle.addEventListener('click', () => this.toggleEditing());
+    const reset = document.getElementById('dashboard-reset-layout');
+    if (reset) reset.addEventListener('click', () => this.resetLayout());
+    if (window.lucide) window.lucide.createIcons();
+  }
+};
+
+// Varsayılan kart sırası (data-game kimlikleri, index.html'deki mevcut sırayla uyumlu)
+const DEFAULT_CARD_ORDER = [
+  'step-by-step-lessons', 'flashcards', 'multiple-choice', 'difficult-words',
+  'true-false', 'matching', 'handwriting', 'pronunciation', 'fill-blanks',
+  'hangman', 'time-attack', 'word-bomb'
+];
+
 // 8. Oyun Yöneticisi (Game Manager)
 const GAMES = {};
 let currentGameInstance = null;
@@ -743,8 +1063,10 @@ function launchGame(gameId) {
   playView.classList.remove('hidden');
 
   updateGameScore(0);
-  document.getElementById('game-timer-container').classList.add('hidden');
-  document.getElementById('game-lives-container').classList.add('hidden');
+  const timerContainer = document.getElementById('game-timer-container');
+  if (timerContainer) timerContainer.classList.add('hidden');
+  const livesContainer = document.getElementById('game-lives-container');
+  if (livesContainer) livesContainer.classList.add('hidden');
 
   if (currentGameInstance && typeof currentGameInstance.destroy === 'function') {
     currentGameInstance.destroy();
@@ -1021,15 +1343,215 @@ class FlashcardsGame {
 // ============================================================================
 // MODÜL 2: ÇOKTAN SEÇMELİ (MULTIPLE CHOICE)
 // ============================================================================
+// ============================================================================
+// ORTAK AYAR & YARDIMCILAR (Çoktan Seçmeli Test + Eşleştirme + Dashboard)
+// ============================================================================
+
+// İngilizce kelime türünü Türkçe etikete çevirir
+function posLabelTr(pos) {
+  const map = {
+    'Verb': 'Fiil', 'Noun': 'İsim', 'Adj': 'Sıfat', 'Adv': 'Zarf',
+    'Phrasal Verb': 'Deyimsel Fiil', 'Conjunction': 'Bağlaç', 'Preposition': 'Edat'
+  };
+  return map[pos] || (pos ? String(pos) : 'Kelime');
+}
+
+// Kelime türünü belirle: DB alanı varsa onu normalize et, yoksa ek/kök sezgisiyle tespit et
+function resolveWordPos(word) {
+  if (!word) return '';
+  const raw = String(word.partOfSpeech || word.part_of_speech || word.pos || '').trim();
+  if (raw) {
+    const lower = raw.toLowerCase();
+    if (lower.includes('phrasal')) return 'Phrasal Verb';
+    if (lower.startsWith('verb') || lower === 'fiil') return 'Verb';
+    if (lower.startsWith('noun') || lower === 'isim' || lower === 'isim') return 'Noun';
+    if (lower.startsWith('adj') || lower === 'sıfat' || lower === 'sifat') return 'Adj';
+    if (lower.startsWith('adv') || lower === 'zarf') return 'Adv';
+    if (lower.startsWith('conj') || lower === 'bağlaç' || lower === 'baglac') return 'Conjunction';
+    if (lower.startsWith('prep') || lower === 'edat') return 'Preposition';
+    return raw;
+  }
+  const en = String(word.en || '').toLowerCase();
+  const tr = String(word.tr || '').trim();
+  const firstTr = tr.split(',')[0].trim();
+  if (/\s/.test(en)) return 'Phrasal Verb';
+  if (/(tion|sion|ment|ness|ity|ance|ence|ship|hood|ism|ist|age|ure|ology)$/.test(en)) return 'Noun';
+  if (/(ous|ful|ive|able|ible|al|ic|ish|less|ant|ent)$/.test(en)) return 'Adj';
+  if (/ly$/.test(en) && en.length > 4) return 'Adv';
+  if (/(mak|mek)$/.test(firstTr)) return 'Verb';
+  return 'Noun';
+}
+
+// Aynı türden çeldirici tercih eden akıllı şık seçici
+function pickDistractorWords(pool, correctWord, count, side) {
+  const targetPos = resolveWordPos(correctWord);
+  const norm = (s) => String(s == null ? '' : s).toLowerCase().trim();
+  const correctText = side === 'tr' ? correctWord.tr : correctWord.en;
+  const seen = new Set([norm(correctText)]);
+  const samePos = [];
+  const otherPos = [];
+  (pool || []).forEach(w => {
+    if (!w || String(w.id) === String(correctWord.id)) return;
+    const text = side === 'tr' ? w.tr : w.en;
+    const key = norm(text);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    (resolveWordPos(w) === targetPos ? samePos : otherPos).push(w);
+  });
+  return [...shuffleArray(samePos), ...shuffleArray(otherPos)].slice(0, count);
+}
+
+// --- Çoktan Seçmeli Test Ayarları (localStorage'da kalıcı) ---
+const QuizSettings = {
+  KEY: 'mc_quiz_settings_v1',
+  direction: 'en-to-tr', // 'en-to-tr' | 'tr-to-en' | 'mixed'
+  shortcutsEnabled: true,
+  load() {
+    try {
+      const raw = localStorage.getItem(this.KEY);
+      if (raw) {
+        const o = JSON.parse(raw) || {};
+        if (['en-to-tr', 'tr-to-en', 'mixed'].includes(o.direction)) this.direction = o.direction;
+        if (typeof o.shortcutsEnabled === 'boolean') this.shortcutsEnabled = o.shortcutsEnabled;
+      }
+    } catch (e) { /* yoksay */ }
+    return this;
+  },
+  save() {
+    try {
+      localStorage.setItem(this.KEY, JSON.stringify({
+        direction: this.direction,
+        shortcutsEnabled: this.shortcutsEnabled
+      }));
+    } catch (e) { /* yoksay */ }
+  }
+};
+
+// --- Dashboard Kart Düzeni (sıralama + kilit) (localStorage'da kalıcı) ---
+const DashboardLayout = {
+  ORDER_KEY: 'dashboard_card_order',
+  LOCK_KEY: 'dashboard_locked_cards',
+  order: [],
+  locked: new Set(),
+  load() {
+    try {
+      const o = JSON.parse(localStorage.getItem(this.ORDER_KEY) || '[]');
+      if (Array.isArray(o)) this.order = o.filter(x => typeof x === 'string');
+    } catch (e) { this.order = []; }
+    try {
+      const l = JSON.parse(localStorage.getItem(this.LOCK_KEY) || '[]');
+      if (Array.isArray(l)) this.locked = new Set(l.filter(x => typeof x === 'string'));
+    } catch (e) { this.locked = new Set(); }
+    return this;
+  },
+  save() {
+    try { localStorage.setItem(this.ORDER_KEY, JSON.stringify(this.order)); } catch (e) { /* yoksay */ }
+    try { localStorage.setItem(this.LOCK_KEY, JSON.stringify([...this.locked])); } catch (e) { /* yoksay */ }
+  },
+  isLocked(gameId) { return this.locked.has(gameId); },
+  toggleLock(gameId) {
+    if (this.locked.has(gameId)) this.locked.delete(gameId);
+    else this.locked.add(gameId);
+    this.save();
+    return this.locked.has(gameId);
+  },
+  reset() {
+    this.order = [];
+    this.locked = new Set();
+    this.save();
+  }
+};
+
+// ============================================================================
+// MODÜL 2: ÇOKTAN SEÇMELİ (MULTIPLE CHOICE)
+// ============================================================================
 class MultipleChoiceGame {
+  static SESSION_SIZE = 15;
+  static OPTION_COUNT = 4;
+
   constructor() {
+    QuizSettings.load();
+    this.direction = QuizSettings.direction;
+    this.shortcutsEnabled = QuizSettings.shortcutsEnabled;
+    this.settingsOpen = false;
+    this.sessionSize = MultipleChoiceGame.SESSION_SIZE;
     this.allWords = WordStore.getWords();
-    // 5000+ kelimede anlık yanıt için rastgele 15 soru paketi
-    this.words = getRandomSample(this.allWords, 15);
+    // Oturum geçmişi: önceki testlerde görülen kelimeler (tekrar sormamak için)
+    this.seenSessionWordIds = new Set();
+    // Tekrar modu (yanlış yapılanları tekrar sor)
+    this.retryOnly = false;
+    this.retryQueue = [];
+    this._resetSessionState();
+    this.words = this._pickNewWords(this.sessionSize);
+    this._bindKeyboard();
+  }
+
+  _resetSessionState() {
     this.currentIndex = 0;
     this.score = 0;
     this.streak = 0;
-    this.mode = 'en-to-tr'; // veya 'tr-to-en'
+    this.maxCombo = 0;
+    this.correctCount = 0;
+    this.wrongCount = 0;
+    this.wrongWords = [];
+    this.answers = [];
+    this.locked = false;
+    this.timeoutIds = [];
+  }
+
+  // Aşama sırası: kilitli değil, çözülmemiş, oturumda görülmemiş; zorlu kelimeler öncelikli
+  _pickNewWords(count) {
+    const pool = this.allWords.filter(w => {
+      const id = String(w.id);
+      return !this.seenSessionWordIds.has(id) && !this._isMastered(w);
+    });
+    const difficult = shuffleArray(pool.filter(w => (w.wrongCount || 0) > 0));
+    const rest = shuffleArray(pool.filter(w => (w.wrongCount || 0) === 0));
+    const selected = [...difficult, ...rest].slice(0, count);
+    selected.forEach(w => this.seenSessionWordIds.add(String(w.id)));
+    return selected;
+  }
+
+  _isMastered(word) {
+    const id = String(word.id);
+    try {
+      const raw = localStorage.getItem('mc_mastered_v1');
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) && arr.includes(id);
+    } catch (e) { return false; }
+  }
+
+  _markMastered(wordId) {
+    try {
+      const raw = localStorage.getItem('mc_mastered_v1');
+      const arr = Array.isArray(JSON.parse(raw || '[]')) ? JSON.parse(raw || '[]') : [];
+      const id = String(wordId);
+      if (!arr.includes(id)) {
+        arr.push(id);
+        localStorage.setItem('mc_mastered_v1', JSON.stringify(arr));
+      }
+    } catch (e) { /* yoksay */ }
+  }
+
+  _bindKeyboard() {
+    this.keyboardHandler = (e) => this.onPhysicalKey(e);
+    window.addEventListener('keydown', this.keyboardHandler);
+  }
+
+  onPhysicalKey(e) {
+    if (!this.shortcutsEnabled || this.locked) return;
+    if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    const key = String(e.key || '').toLowerCase();
+    const idxMap = { a: 0, b: 1, c: 2, d: 3, '1': 0, '2': 1, '3': 2, '4': 3 };
+    if (key in idxMap) {
+      e.preventDefault();
+      this.answerByIndex(idxMap[key]);
+      return;
+    }
+    if (key === 'r') {
+      e.preventDefault();
+      this.speakCurrent();
+    }
   }
 
   init() {
@@ -1037,69 +1559,117 @@ class MultipleChoiceGame {
     this.render();
   }
 
+  _resolveDirection() {
+    if (this.direction === 'mixed') {
+      return Math.random() < 0.5 ? 'en-to-tr' : 'tr-to-en';
+    }
+    return this.direction;
+  }
+
+  _buildQuestion(word) {
+    const dir = this._resolveDirection();
+    const isEnToTr = dir === 'en-to-tr';
+    const side = isEnToTr ? 'tr' : 'en';
+    const distractors = pickDistractorWords(
+      this.allWords, word, MultipleChoiceGame.OPTION_COUNT - 1, side
+    );
+    const options = shuffleArray([
+      { text: isEnToTr ? word.tr : word.en, isCorrect: true, word },
+      ...distractors.map(w => ({ text: isEnToTr ? w.tr : w.en, isCorrect: false, word: w }))
+    ]);
+    return { word, isEnToTr, options };
+  }
+
   render() {
     const stage = document.getElementById('game-stage');
     if (!stage) return;
-    if (this.words.length === 0) return;
+    if (this.words.length === 0) {
+      stage.innerHTML = `<div class="text-center text-slate-400">Bu test için uygun kelime bulunamadı. Lütfen kelime havuzunuzu genişletin.</div>`;
+      return;
+    }
 
     const currentWord = this.words[this.currentIndex];
+    const q = this._buildQuestion(currentWord);
+    this.currentQuestion = q;
+    const isEnToTr = q.isEnToTr;
+    const posLabel = posLabelTr(resolveWordPos(currentWord));
+    const starred = WordStore.isInStudyList(currentWord.en);
     updateGameScore(this.score);
 
-    // Yanlış şıkları oluştur (rastgele diğer kelimelerden)
-    const otherWords = this.allWords.filter(w => w.id !== currentWord.id);
-    const shuffledOthers = shuffleArray(otherWords).slice(0, 3);
-
-    // Doğru ve yanlış seçenekleri harmanla
-    const isEnToTr = this.mode === 'en-to-tr';
-    const options = shuffleArray([
-      { text: isEnToTr ? currentWord.tr : currentWord.en, isCorrect: true, word: currentWord },
-      ...shuffledOthers.map(w => ({ text: isEnToTr ? w.tr : w.en, isCorrect: false, word: w }))
-    ]);
+    const optionKeys = ['A', 'B', 'C', 'D', 'E'];
 
     stage.innerHTML = `
       <div class="w-full max-w-xl flex flex-col items-center">
-        <!-- Üst İlerleme ve Mod Değiştirici -->
+        <!-- Üst İlerleme ve Ayarlar -->
         <div class="w-full flex items-center justify-between text-xs text-slate-400 mb-3 px-2">
           <span>Soru ${this.currentIndex + 1} / ${this.words.length}</span>
-          <div class="flex items-center gap-1.5">
+          <div class="flex items-center gap-2">
             <span class="text-amber-400 font-bold flex items-center gap-1"><i data-lucide="flame" class="w-3.5 h-3.5"></i> Seri: ${this.streak}</span>
-            <button id="toggle-quiz-mode-btn" class="ml-2 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-brand-300 border border-slate-700 transition">
-              ${isEnToTr ? 'EN &rarr; TR' : 'TR &rarr; EN'}
+            <button id="quiz-settings-btn" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1.5" title="Test Ayarları">
+              <i data-lucide="settings" class="w-3.5 h-3.5"></i> Ayarlar
             </button>
           </div>
         </div>
-        <div class="w-full h-1.5 bg-slate-700 rounded-full mb-6 overflow-hidden">
+        <div class="w-full h-1.5 bg-slate-700 rounded-full mb-4 overflow-hidden">
           <div class="h-full bg-brand-500 transition-all duration-300" style="width: ${((this.currentIndex + 1) / this.words.length) * 100}%"></div>
         </div>
 
+        <div id="quiz-settings-panel" class="w-full ${this.settingsOpen ? '' : 'hidden'} mb-4 bg-slate-900/90 border border-slate-700 rounded-2xl p-4 text-left">
+          <div class="flex items-center justify-between mb-3">
+            <h4 class="text-sm font-bold text-white flex items-center gap-2"><i data-lucide="sliders-horizontal" class="w-4 h-4 text-brand-400"></i> Test Ayarları</h4>
+            <button id="quiz-settings-close" class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300"><i data-lucide="x" class="w-4 h-4"></i></button>
+          </div>
+          <div class="mb-3">
+            <span class="text-xs text-slate-400 font-semibold block mb-1.5">Soru Yönü</span>
+            <div class="flex flex-wrap gap-2" id="quiz-direction-group">
+              ${[['en-to-tr', 'EN → TR'], ['tr-to-en', 'TR → EN'], ['mixed', 'Karışık']].map(([val, label]) => `
+                <button data-dir="${val}" class="quiz-dir-btn px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${this.direction === val ? 'bg-brand-600 border-brand-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'}">${label}</button>
+              `).join('')}
+            </div>
+          </div>
+          <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+            <span class="text-xs text-slate-300 font-semibold flex items-center gap-2"><i data-lucide="keyboard" class="w-4 h-4 text-brand-400"></i> Klavye Kısayolları (A-B-C-D / 1-2-3-4, R: Dinle)</span>
+            <button id="quiz-shortcuts-toggle" class="relative w-11 h-6 rounded-full transition ${this.shortcutsEnabled ? 'bg-emerald-500' : 'bg-slate-700'}">
+              <span class="absolute top-0.5 ${this.shortcutsEnabled ? 'left-[22px]' : 'left-0.5'} w-5 h-5 rounded-full bg-white transition-all"></span>
+            </button>
+          </div>
+        </div>
+
         <!-- Soru Kartı -->
-        <div class="w-full bg-slate-800/80 border border-slate-700 rounded-2xl p-6 sm:p-8 text-center shadow-xl mb-6">
+        <div class="w-full bg-slate-800/80 border border-slate-700 rounded-2xl p-6 sm:p-8 text-center shadow-xl mb-6 relative">
+          <button id="quiz-star-btn" class="absolute top-3 right-3 p-2 rounded-lg transition ${starred ? 'text-amber-400 bg-amber-500/20 border border-amber-500/40' : 'text-slate-500 hover:text-amber-400 bg-slate-900/60 border border-slate-700'}" title="${starred ? 'Özel Listemden Çıkar' : 'Özel Listeme Ekle'}">
+            <i data-lucide="star" class="w-5 h-5 ${starred ? 'fill-amber-400' : ''}"></i>
+          </button>
           <span class="text-xs uppercase tracking-widest text-brand-400 font-semibold mb-2 block">
             ${isEnToTr ? 'Bu kelimenin Türkçe karşılığı nedir?' : 'Bu kelimenin İngilizce karşılığı nedir?'}
           </span>
-          <h2 class="text-3xl sm:text-4xl font-extrabold text-white mb-2 font-display flex items-center justify-center gap-2">
+          <h2 class="text-3xl sm:text-4xl font-extrabold text-white mb-2 font-display flex items-center justify-center gap-2 flex-wrap">
             <span>${isEnToTr ? currentWord.en : currentWord.tr}</span>
             ${isEnToTr ? `
-              <button onclick="AudioService.speak('${currentWord.en.replace(/'/g, "\\'")}')" class="p-2 text-slate-400 hover:text-brand-400 transition" title="Dinle">
+              <button id="quiz-listen-btn" class="p-2 text-slate-400 hover:text-brand-400 transition" title="Dinle (R)">
                 <i data-lucide="volume-2" class="w-5 h-5"></i>
               </button>
             ` : ''}
           </h2>
-          ${isEnToTr && currentWord.ipa ? `<p class="text-sm font-mono text-slate-400">[${currentWord.ipa}]</p>` : ''}
+          <div class="flex items-center justify-center gap-2 flex-wrap">
+            ${isEnToTr && currentWord.ipa ? `<span class="text-sm font-mono text-slate-400">[${currentWord.ipa}]</span>` : ''}
+            <span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-300 border border-slate-600 font-medium">${posLabel}</span>
+          </div>
         </div>
 
         <!-- 4 Şık Grid -->
         <div class="w-full grid grid-cols-1 sm:grid-cols-2 gap-3" id="quiz-options-container">
-          ${options.map((opt, i) => `
-            <button class="game-option-btn" data-correct="${opt.isCorrect}">
+          ${q.options.map((opt, i) => `
+            <button class="game-option-btn" data-correct="${opt.isCorrect}" data-index="${i}">
               <span class="flex items-center gap-2">
-                <span class="w-6 h-6 rounded-md bg-slate-700/80 text-xs font-mono flex items-center justify-center text-slate-300">${['A', 'B', 'C', 'D'][i]}</span>
+                <span class="w-6 h-6 rounded-md bg-slate-700/80 text-xs font-mono flex items-center justify-center text-slate-300">${optionKeys[i]}</span>
                 <span>${opt.text}</span>
               </span>
               <i data-lucide="chevron-right" class="w-4 h-4 text-slate-500"></i>
             </button>
           `).join('')}
         </div>
+        ${this.shortcutsEnabled ? `<p class="text-[11px] text-slate-500 mt-3 text-center">Klavye: A-B-C-D veya 1-2-3-4 ile seç • R ile dinle</p>` : ''}
       </div>
     `;
 
@@ -1108,75 +1678,244 @@ class MultipleChoiceGame {
   }
 
   bindEvents(currentWord) {
-    const toggleModeBtn = document.getElementById('toggle-quiz-mode-btn');
-    if (toggleModeBtn) {
-      toggleModeBtn.addEventListener('click', () => {
-        this.mode = this.mode === 'en-to-tr' ? 'tr-to-en' : 'en-to-tr';
+    const settingsBtn = document.getElementById('quiz-settings-btn');
+    if (settingsBtn) {
+      settingsBtn.addEventListener('click', () => {
+        this.settingsOpen = !this.settingsOpen;
+        const panel = document.getElementById('quiz-settings-panel');
+        if (panel) panel.classList.toggle('hidden', !this.settingsOpen);
+      });
+    }
+    const settingsClose = document.getElementById('quiz-settings-close');
+    if (settingsClose) {
+      settingsClose.addEventListener('click', () => {
+        this.settingsOpen = false;
+        const panel = document.getElementById('quiz-settings-panel');
+        if (panel) panel.classList.add('hidden');
+      });
+    }
+    document.querySelectorAll('#quiz-direction-group .quiz-dir-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.direction = btn.getAttribute('data-dir');
+        QuizSettings.direction = this.direction;
+        QuizSettings.save();
+        showToast('Soru yönü güncellendi: ' + btn.textContent.trim(), 'info');
         this.render();
       });
+    });
+    const shortcutsToggle = document.getElementById('quiz-shortcuts-toggle');
+    if (shortcutsToggle) {
+      shortcutsToggle.addEventListener('click', () => {
+        this.shortcutsEnabled = !this.shortcutsEnabled;
+        QuizSettings.shortcutsEnabled = this.shortcutsEnabled;
+        QuizSettings.save();
+        showToast(this.shortcutsEnabled ? 'Klavye kısayolları açıldı.' : 'Klavye kısayolları kapatıldı.', 'info');
+        this.render();
+      });
+    }
+
+    const starBtn = document.getElementById('quiz-star-btn');
+    if (starBtn) {
+      starBtn.addEventListener('click', () => {
+        const isAdded = WordStore.toggleStudyList(currentWord.en);
+        showToast(isAdded ? `"${currentWord.en}" özel listenize eklendi! ⭐` : `"${currentWord.en}" özel listenizden çıkarıldı.`, 'info');
+        this.render();
+      });
+    }
+    const listenBtn = document.getElementById('quiz-listen-btn');
+    if (listenBtn) {
+      listenBtn.addEventListener('click', () => this.speakCurrent());
     }
 
     const optionButtons = document.querySelectorAll('#quiz-options-container .game-option-btn');
     optionButtons.forEach(btn => {
       btn.addEventListener('click', () => {
-        // Tüm butonları dondur
-        optionButtons.forEach(b => b.disabled = true);
-        const isCorrect = btn.getAttribute('data-correct') === 'true';
-
-        if (isCorrect) {
-          btn.classList.add('correct');
-          this.score += 10 + (this.streak * 2);
-          this.streak++;
-          AudioService.playSfx('correct');
-          WordStore.recordSuccess(currentWord.id);
-        } else {
-          btn.classList.add('wrong');
-          this.streak = 0;
-          AudioService.playSfx('wrong');
-          WordStore.recordMistake(currentWord.id);
-          // Doğru şıkkı yeşille
-          optionButtons.forEach(b => {
-            if (b.getAttribute('data-correct') === 'true') {
-              b.classList.add('correct');
-            }
-          });
-        }
-
-        setTimeout(() => {
-          if (this.currentIndex < this.words.length - 1) {
-            this.currentIndex++;
-            this.render();
-          } else {
-            AudioService.playSfx('win');
-            this.renderComplete();
-          }
-        }, 1100);
+        if (this.locked) return;
+        this._handleAnswer(btn);
       });
     });
+  }
+
+  speakCurrent() {
+    if (this.currentQuestion && this.currentQuestion.word) {
+      AudioService.speak(this.currentQuestion.word.en);
+    }
+  }
+
+  answerByIndex(idx) {
+    if (this.locked) return;
+    const optionButtons = document.querySelectorAll('#quiz-options-container .game-option-btn');
+    const btn = optionButtons[idx];
+    if (btn) btn.click();
+  }
+
+  _handleAnswer(btn) {
+    const currentWord = this.words[this.currentIndex];
+    const optionButtons = document.querySelectorAll('#quiz-options-container .game-option-btn');
+    optionButtons.forEach(b => b.disabled = true);
+    this.locked = true;
+
+    const isCorrect = btn.getAttribute('data-correct') === 'true';
+    this.answers.push({ word: currentWord, isCorrect });
+
+    if (isCorrect) {
+      btn.classList.add('correct');
+      this.score += 10 + (this.streak * 2);
+      this.streak++;
+      this.maxCombo = Math.max(this.maxCombo, this.streak);
+      this.correctCount++;
+      AudioService.playSfx('correct');
+      WordStore.recordSuccess(currentWord.id);
+      this._markMastered(currentWord.id);
+    } else {
+      btn.classList.add('wrong');
+      this.streak = 0;
+      this.wrongCount++;
+      AudioService.playSfx('wrong');
+      // Doğru şıkkı yeşille
+      optionButtons.forEach(b => {
+        if (b.getAttribute('data-correct') === 'true') b.classList.add('correct');
+      });
+      if (!this.wrongWords.some(w => String(w.id) === String(currentWord.id))) {
+        this.wrongWords.push(currentWord);
+      }
+      // Zorlu Kelimeler istatistiğine otomatik işle
+      WordStore.recordMistake(currentWord.id, 'multiple-choice');
+    }
+
+    const delay = 1100;
+    this._setTimeout(() => {
+      this.locked = false;
+      if (this.currentIndex < this.words.length - 1) {
+        this.currentIndex++;
+        this.render();
+      } else {
+        AudioService.playSfx('win');
+        this.renderComplete();
+      }
+    }, delay);
+  }
+
+  _setTimeout(fn, ms) {
+    const id = setTimeout(fn, ms);
+    this.timeoutIds.push(id);
+    return id;
+  }
+
+  _clearTimeouts() {
+    (this.timeoutIds || []).forEach(id => clearTimeout(id));
+    this.timeoutIds = [];
+  }
+
+  _startNewTest() {
+    this._clearTimeouts();
+    this.retryOnly = false;
+    this._resetSessionState();
+    this.words = this._pickNewWords(this.sessionSize);
+    if (this.words.length === 0) {
+      // Tüm kelimeler oturumda görüldü -> havuzu sıfırla ve yeni tur başlat
+      this.seenSessionWordIds.clear();
+      this.words = this._pickNewWords(this.sessionSize);
+      showToast('Tüm kelimeleri tamamladınız, yeni döngü başlatılıyor!', 'info');
+    }
+    this.render();
+  }
+
+  _retryWrongs() {
+    if (!this.wrongWords.length) return;
+    this._clearTimeouts();
+    const retryWords = [...this.wrongWords];
+    this._resetSessionState();
+    this.words = retryWords;
+    this.retryOnly = true;
+    this.render();
   }
 
   renderComplete() {
     const stage = document.getElementById('game-stage');
     if (!stage) return;
+    const total = this.answers.length || this.words.length || 1;
+    const pct = Math.round((this.correctCount / total) * 100);
+    const wrongList = this.wrongWords;
+
     stage.innerHTML = `
-      <div class="text-center p-6 max-w-md">
-        <div class="w-16 h-16 rounded-2xl bg-brand-500/20 text-brand-400 mx-auto flex items-center justify-center mb-4">
+      <div class="w-full max-w-lg flex flex-col items-center">
+        <div class="w-16 h-16 rounded-2xl bg-brand-500/20 text-brand-400 mx-auto flex items-center justify-center mb-3">
           <i data-lucide="award" class="w-8 h-8"></i>
         </div>
-        <h3 class="text-2xl font-bold font-display text-white mb-2">Test Tamamlandı!</h3>
-        <p class="text-slate-300 text-sm mb-4">Toplam Skorun: <span class="text-brand-400 font-bold font-mono text-xl">${this.score}</span></p>
-        <div class="flex items-center justify-center gap-3">
-          <button onclick="launchGame('multiple-choice')" class="px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm transition">Tekrar Oyna</button>
-          <button onclick="closeGame()" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm transition border border-slate-700">Menüye Dön</button>
+        <h3 class="text-2xl font-bold font-display text-white mb-1">${this.retryOnly ? 'Tekrar Testi Tamamlandı!' : 'Test Tamamlandı!'}</h3>
+        <p class="text-slate-400 text-sm mb-4">Toplam Skorun: <span class="text-brand-400 font-bold font-mono text-lg">${this.score}</span></p>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 w-full mb-4">
+          <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-3 text-center">
+            <p class="text-[11px] text-slate-400 mb-0.5">Doğru</p>
+            <p class="text-xl font-bold text-emerald-400">${this.correctCount}</p>
+          </div>
+          <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-3 text-center">
+            <p class="text-[11px] text-slate-400 mb-0.5">Yanlış</p>
+            <p class="text-xl font-bold text-rose-400">${this.wrongCount}</p>
+          </div>
+          <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-3 text-center">
+            <p class="text-[11px] text-slate-400 mb-0.5">Başarı</p>
+            <p class="text-xl font-bold text-brand-300">%${pct}</p>
+          </div>
+          <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-3 text-center">
+            <p class="text-[11px] text-slate-400 mb-0.5">En Yüksek Seri</p>
+            <p class="text-xl font-bold text-amber-400">${this.maxCombo}</p>
+          </div>
+        </div>
+
+        ${wrongList.length > 0 ? `
+          <div class="w-full bg-slate-900/80 border border-rose-500/30 rounded-2xl p-3.5 mb-4 text-left">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-rose-300 mb-2 flex items-center gap-1.5">
+              <i data-lucide="alert-triangle" class="w-4 h-4"></i> Yanlış Yapılan Kelimeler (${wrongList.length})
+            </h4>
+            <div class="flex flex-col gap-1.5 max-h-40 overflow-y-auto">
+              ${wrongList.map(w => `
+                <div class="flex items-center justify-between gap-2 bg-slate-800/70 rounded-lg px-2.5 py-1.5">
+                  <span class="text-sm text-slate-200"><strong class="text-white">${escapeHtml(w.en)}</strong> <span class="text-slate-400">— ${escapeHtml(w.tr)}</span></span>
+                  <button class="quiz-wrong-speak p-1.5 rounded-lg text-slate-400 hover:text-brand-400 hover:bg-slate-700 transition" data-word="${escapeHtml(w.en)}" title="Dinle">
+                    <i data-lucide="volume-2" class="w-4 h-4"></i>
+                  </button>
+                </div>
+              `).join('')}
+            </div>
+            <p class="text-[10px] text-slate-500 mt-2">Bu kelimeler otomatik olarak "Zorlu Kelimeler" listenize eklendi.</p>
+          </div>
+        ` : ''}
+
+        <div class="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-3 w-full">
+          <button id="quiz-next-test-btn" class="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm transition flex items-center justify-center gap-2">
+            <i data-lucide="play-circle" class="w-4 h-4"></i> Diğer Teste Geç (Yeni 15 Kelime) →
+          </button>
+          ${wrongList.length > 0 ? `
+            <button id="quiz-retry-btn" class="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-sm transition flex items-center justify-center gap-2">
+              <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Yanlış Yapılanları Tekrarla (${wrongList.length} Kelime)
+            </button>
+          ` : ''}
+          <button onclick="closeGame()" class="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm transition border border-slate-700">Menüye Dön</button>
         </div>
       </div>
     `;
     if (window.lucide) window.lucide.createIcons();
+
+    const nextBtn = document.getElementById('quiz-next-test-btn');
+    if (nextBtn) nextBtn.addEventListener('click', () => this._startNewTest());
+    const retryBtn = document.getElementById('quiz-retry-btn');
+    if (retryBtn) retryBtn.addEventListener('click', () => this._retryWrongs());
+    document.querySelectorAll('.quiz-wrong-speak').forEach(b => {
+      b.addEventListener('click', () => AudioService.speak(b.getAttribute('data-word')));
+    });
   }
 
-  destroy() {}
+  destroy() {
+    this._clearTimeouts();
+    if (this.keyboardHandler) {
+      window.removeEventListener('keydown', this.keyboardHandler);
+      this.keyboardHandler = null;
+    }
+  }
 }
-
 // ============================================================================
 // MODÜL 3: ZORLU KELİMELER (DIFFICULT WORDS SPECIAL FILTER)
 // ============================================================================
@@ -1524,72 +2263,193 @@ class TrueFalseGame {
 // ============================================================================
 // MODÜL 5: EŞLEŞTİRME OYUNU (MATCHING GAME)
 // ============================================================================
+// ============================================================================
+// MODÜL 5: EŞLEŞTİRME (MATCHING) — Zorluk seçimi, kronometre, rekor, sesli geri bildirim
+// ============================================================================
 class MatchingGame {
+  static DIFFICULTIES = {
+    easy:   { key: 'easy',   label: 'Kolay', pairs: 6,  desc: '6 Çift • 12 Kart',   icon: 'smile' },
+    medium: { key: 'medium', label: 'Orta',  pairs: 10, desc: '10 Çift • 20 Kart',  icon: 'meh' },
+    hard:   { key: 'hard',   label: 'Zor',   pairs: 14, desc: '14 Çift • 28 Kart',  icon: 'angry' }
+  };
+  static BEST_KEY = 'matching_best_times_v1';
+
   constructor() {
-    // 5000+ kelimede anlık yanıt için rastgele 6 kelimelik eşleştirme çifti
-    this.selectedWords = getRandomSample(WordStore.getWords(), 6);
-    this.enCards = [];
-    this.trCards = [];
-    this.activeMatches = []; // Tamamlanan eşleşmeler: [{ en, tr }]
-    this.firstSelected = null;
+    this.difficulty = 'medium';
+    this.pool = WordStore.getWords();
+    this.timerId = null;
+    this.startTime = 0;
+    this.elapsedMs = 0;
+    this.moves = 0;
     this.matchedCount = 0;
     this.score = 0;
-    this.moves = 0;
+    this.firstSelected = null;
     this.isProcessing = false;
+    this.phase = 'select'; // 'select' | 'play' | 'result'
   }
 
   init() {
-    setGameHeader('Eşleştirme Oyunu', 'İngilizce ve Türkçe karşılıklarını birbirleriyle eşleştirerek yok et');
+    setGameHeader('Eşleştirme Oyunu', 'İngilizce ve Türkçe karşılıkları eşleştir, rekoru kır!');
+    this.renderDifficultySelect();
+  }
 
-    // Sol sütun: Rastgele karıştırılmış İngilizce kartlar
-    this.enCards = shuffleArray(this.selectedWords.map((w, idx) => ({
-      id: `en_${w.id}_${idx}`,
-      wordId: w.id,
-      text: w.en,
-      type: 'en',
-      matched: false,
-      word: w
+  _pairs() {
+    return MatchingGame.DIFFICULTIES[this.difficulty].pairs;
+  }
+
+  _loadBest() {
+    try {
+      const raw = localStorage.getItem(MatchingGame.BEST_KEY);
+      const obj = raw ? JSON.parse(raw) : {};
+      return obj && typeof obj === 'object' ? obj : {};
+    } catch (e) { return {}; }
+  }
+
+  _bestFor(difficulty) {
+    const best = this._loadBest();
+    const v = Number(best[difficulty]);
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }
+
+  _saveBest(difficulty, ms) {
+    try {
+      const best = this._loadBest();
+      best[difficulty] = ms;
+      localStorage.setItem(MatchingGame.BEST_KEY, JSON.stringify(best));
+    } catch (e) { /* yoksay */ }
+  }
+
+  static formatTime(ms) {
+    const totalSec = Math.floor((ms || 0) / 1000);
+    const m = String(Math.floor(totalSec / 60)).padStart(2, '0');
+    const s = String(totalSec % 60).padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  // --- Zorluk seçim ekranı ---
+  renderDifficultySelect() {
+    this._stopTimer();
+    this.phase = 'select';
+    const stage = document.getElementById('game-stage');
+    if (!stage) return;
+
+    const available = this.pool.length;
+    stage.innerHTML = `
+      <div class="w-full max-w-2xl flex flex-col items-center">
+        <div class="text-center mb-6">
+          <div class="w-16 h-16 rounded-2xl bg-purple-500/20 text-purple-400 mx-auto flex items-center justify-center mb-3">
+            <i data-lucide="combine" class="w-8 h-8"></i>
+          </div>
+          <h3 class="text-2xl font-bold font-display text-white mb-1">Zorluk Seç</h3>
+          <p class="text-slate-400 text-sm">Kaç çift kelimeyle oynamak istersin? Havuzun: <strong class="text-purple-300">${available}</strong> kelime</p>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full">
+          ${Object.values(MatchingGame.DIFFICULTIES).map(d => {
+            const best = this._bestFor(d.key);
+            const enough = available >= d.pairs;
+            return `
+            <button class="matching-diff-btn ${enough ? '' : 'opacity-40 cursor-not-allowed'} bg-slate-800/80 border border-slate-700 hover:border-purple-500/70 rounded-2xl p-5 text-left transition group" data-diff="${d.key}" ${enough ? '' : 'disabled'}>
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-bold text-white">${d.label}</span>
+                <i data-lucide="${d.icon}" class="w-5 h-5 text-purple-400"></i>
+              </div>
+              <p class="text-xs text-slate-400 mb-3">${d.desc}</p>
+              <div class="text-[11px] font-mono text-amber-400 flex items-center gap-1">
+                <i data-lucide="trophy" class="w-3.5 h-3.5"></i>
+                ${best ? 'Rekor: ' + MatchingGame.formatTime(best) : 'Rekor: —'}
+              </div>
+            </button>`;
+          }).join('')}
+        </div>
+        ${available < MatchingGame.DIFFICULTIES.easy.pairs ? `<p class="text-xs text-amber-400 mt-4 text-center">Eşleştirme için en az ${MatchingGame.DIFFICULTIES.easy.pairs} kelime gerekir.</p>` : ''}
+      </div>
+    `;
+    if (window.lucide) window.lucide.createIcons();
+
+    document.querySelectorAll('.matching-diff-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (btn.hasAttribute('disabled')) return;
+        this.difficulty = btn.getAttribute('data-diff');
+        AudioService.playSfx('click');
+        this.startGame();
+      });
+    });
+  }
+
+  // --- Oyunu başlat ---
+  startGame() {
+    this._stopTimer();
+    this.phase = 'play';
+    const pairs = this._pairs();
+    const sample = getRandomSample(this.pool, pairs);
+
+    this.enCards = shuffleArray(sample.map((w, idx) => ({
+      id: `en_${w.id}_${idx}`, wordId: w.id, text: w.en, type: 'en', matched: false, word: w
     })));
-
-    // Sağ sütun: Rastgele karıştırılmış Türkçe kartlar
-    this.trCards = shuffleArray(this.selectedWords.map((w, idx) => ({
-      id: `tr_${w.id}_${idx}`,
-      wordId: w.id,
-      text: w.tr,
-      type: 'tr',
-      matched: false,
-      word: w
+    this.trCards = shuffleArray(sample.map((w, idx) => ({
+      id: `tr_${w.id}_${idx}`, wordId: w.id, text: w.tr, type: 'tr', matched: false, word: w
     })));
 
     this.matchedCount = 0;
     this.firstSelected = null;
     this.activeMatches = [];
     this.isProcessing = false;
+    this.moves = 0;
+    this.score = 0;
+    this.elapsedMs = 0;
+    this.startTime = Date.now();
+    this._startTimer();
 
     this.render();
+  }
+
+  _startTimer() {
+    this._stopTimer();
+    this.timerId = setInterval(() => {
+      this.elapsedMs = Date.now() - this.startTime;
+      const el = document.getElementById('matching-timer');
+      if (el) el.textContent = MatchingGame.formatTime(this.elapsedMs);
+    }, 250);
+  }
+
+  _stopTimer() {
+    if (this.timerId) {
+      clearInterval(this.timerId);
+      this.timerId = null;
+    }
   }
 
   render() {
     const stage = document.getElementById('game-stage');
     if (!stage) return;
-
     updateGameScore(this.score);
+
+    const best = this._bestFor(this.difficulty);
+    const diffLabel = MatchingGame.DIFFICULTIES[this.difficulty].label;
 
     stage.innerHTML = `
       <div class="w-full max-w-3xl flex flex-col items-center">
-        <!-- Bilgi Çubuğu -->
-        <div class="w-full flex items-center justify-between text-xs sm:text-sm text-slate-400 mb-5 px-2">
-          <span>Eşleşen: <strong class="text-brand-400">${this.matchedCount} / ${this.selectedWords.length}</strong></span>
-          <span>Hamle: <strong class="text-white">${this.moves}</strong></span>
-          <button id="rematch-btn" class="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-slate-700 transition flex items-center gap-1.5 shadow-sm">
-            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-            Yeniden Karıştır
-          </button>
+        <!-- Bilgi Çubuğu: Kronometre / Hamle / Rekor -->
+        <div class="w-full flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm text-slate-400 mb-4 px-2">
+          <div class="flex items-center gap-3">
+            <span class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-amber-400 font-mono font-bold flex items-center gap-1.5">
+              <i data-lucide="clock" class="w-4 h-4"></i><span id="matching-timer">${MatchingGame.formatTime(this.elapsedMs)}</span>
+            </span>
+            <span>Hamle: <strong class="text-white">${this.moves}</strong></span>
+            <span class="hidden sm:inline">Eşleşen: <strong class="text-brand-400">${this.matchedCount} / ${this.enCards.length}</strong></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-amber-300 font-mono font-bold flex items-center gap-1.5">
+              <i data-lucide="trophy" class="w-4 h-4"></i> ${diffLabel} Rekor: ${best ? MatchingGame.formatTime(best) : '—'}
+            </span>
+            <button id="matching-diff-change-btn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-slate-700 transition flex items-center gap-1.5">
+              <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i> Zorluk
+            </button>
+          </div>
         </div>
 
-        <!-- Çift Sütunlu Sağlı-Sollu Düzen (Mobil Uyumlu Grid: 2 Sütun, Dinamik Gap & Metin Boyutu) -->
-        <div class="w-full grid grid-cols-2 gap-2 sm:gap-4 md:gap-6 items-start mb-6">
-          <!-- Sol Sütun: İngilizce -->
+        <!-- Çift Sütunlu Düzen -->
+        <div class="w-full grid grid-cols-2 gap-2 sm:gap-4 md:gap-6 items-start mb-5">
           <div class="flex flex-col gap-2 sm:gap-3">
             <div class="flex items-center justify-between px-1 sm:px-2 pb-1 border-b border-slate-700/60">
               <span class="text-[11px] sm:text-xs font-semibold tracking-wider text-blue-400 uppercase flex items-center gap-1">
@@ -1599,13 +2459,11 @@ class MatchingGame {
             <div class="flex flex-col gap-2 sm:gap-2.5" id="en-column">
               ${this.enCards.map(c => `
                 <div class="match-card ${c.matched ? 'matched-hidden' : 'unmatched'} p-2.5 sm:p-3.5 rounded-xl border flex items-center justify-center text-center select-none cursor-pointer transition shadow-sm" data-card-id="${c.id}" data-type="en">
-                  <span class="text-xs sm:text-sm md:text-base font-semibold break-words leading-tight">${c.text}</span>
+                  <span class="text-xs sm:text-sm md:text-base font-semibold break-words leading-tight">${escapeHtml(c.text)}</span>
                 </div>
               `).join('')}
             </div>
           </div>
-
-          <!-- Sağ Sütun: Türkçe -->
           <div class="flex flex-col gap-2 sm:gap-3">
             <div class="flex items-center justify-between px-1 sm:px-2 pb-1 border-b border-slate-700/60">
               <span class="text-[11px] sm:text-xs font-semibold tracking-wider text-emerald-400 uppercase flex items-center gap-1">
@@ -1615,14 +2473,14 @@ class MatchingGame {
             <div class="flex flex-col gap-2.5 sm:gap-2.5" id="tr-column">
               ${this.trCards.map(c => `
                 <div class="match-card ${c.matched ? 'matched-hidden' : 'unmatched'} p-2.5 sm:p-3.5 rounded-xl border flex items-center justify-center text-center select-none cursor-pointer transition shadow-sm" data-card-id="${c.id}" data-type="tr">
-                  <span class="text-xs sm:text-sm md:text-base font-semibold break-words leading-tight">${c.text}</span>
+                  <span class="text-xs sm:text-sm md:text-base font-semibold break-words leading-tight">${escapeHtml(c.text)}</span>
                 </div>
               `).join('')}
             </div>
           </div>
         </div>
 
-        <!-- Alt Bölüm: Aktif Eşleşmeler Paneli -->
+        <!-- Aktif Eşleşmeler -->
         <div class="w-full bg-slate-900/80 rounded-2xl border border-slate-800 p-4 shadow-lg backdrop-blur-sm">
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2">
@@ -1631,15 +2489,14 @@ class MatchingGame {
             </div>
             <span class="text-xs text-slate-400">Tamamlanan: <strong class="text-emerald-400">${this.activeMatches.length}</strong></span>
           </div>
-
           <div id="active-matches-container" class="flex flex-wrap gap-2.5 min-h-[48px] items-center p-2 rounded-xl bg-slate-950/60 border border-slate-800/80">
             ${this.activeMatches.length === 0 ? `
               <span class="text-xs text-slate-400 italic px-2 py-1">Doğru eşleştirdiğin kelime çiftleri burada listelenecek...</span>
             ` : this.activeMatches.map(m => `
               <div class="active-match-badge">
-                <span class="en-word">${m.en}</span>
+                <span class="en-word">${escapeHtml(m.en)}</span>
                 <span class="arrow">➔</span>
-                <span class="tr-word">${m.tr}</span>
+                <span class="tr-word">${escapeHtml(m.tr)}</span>
               </div>
             `).join('')}
           </div>
@@ -1652,10 +2509,11 @@ class MatchingGame {
   }
 
   bindEvents() {
-    const rematchBtn = document.getElementById('rematch-btn');
-    if (rematchBtn) {
-      rematchBtn.addEventListener('click', () => {
-        this.init();
+    const diffChange = document.getElementById('matching-diff-change-btn');
+    if (diffChange) {
+      diffChange.addEventListener('click', () => {
+        this._stopTimer();
+        this.renderDifficultySelect();
       });
     }
 
@@ -1670,7 +2528,11 @@ class MatchingGame {
         const cardData = allCards.find(c => c.id === cardId);
         if (!cardData || cardData.matched) return;
 
-        // Kart zaten seçiliyse seçimi kaldır
+        // İngilizce karta tıklandığında telaffuz
+        if (cardData.type === 'en') {
+          AudioService.speak(cardData.text);
+        }
+
         if (this.firstSelected && this.firstSelected.card.id === cardId) {
           el.classList.remove('selected');
           this.firstSelected = null;
@@ -1680,24 +2542,18 @@ class MatchingGame {
         AudioService.playSfx('click');
 
         if (!this.firstSelected) {
-          // İlk kart seçildi
           this.firstSelected = { card: cardData, el };
           el.classList.add('selected');
         } else {
-          // İkinci kart seçildi
           this.moves++;
           el.classList.add('selected');
           this.isProcessing = true;
 
           const first = this.firstSelected;
           const second = { card: cardData, el };
-
-          // Eşleşme kontrolü: Farklı tipte (biri en, biri tr) ve aynı wordId'ye sahip olmalı
           const isMatch = (first.card.wordId === second.card.wordId) && (first.card.type !== second.card.type);
 
           if (isMatch) {
-            // DOĞRU EŞLEŞME:
-            // 1. Yeşil parlama
             first.el.classList.remove('selected');
             second.el.classList.remove('selected');
             first.el.classList.add('match-success');
@@ -1711,13 +2567,11 @@ class MatchingGame {
             AudioService.playSfx('pop');
             WordStore.recordSuccess(first.card.wordId);
 
-            // Aktif eşleşmelere ekle
             const enText = first.card.type === 'en' ? first.card.text : second.card.text;
             const trText = first.card.type === 'tr' ? first.card.text : second.card.text;
             this.activeMatches.push({ en: enText, tr: trText });
 
-            setTimeout(() => {
-              // 2. Opaklık sıfırlanarak kaybolsun
+            const t = setTimeout(() => {
               first.el.classList.add('matched-hidden');
               second.el.classList.add('matched-hidden');
               first.el.classList.remove('match-success');
@@ -1725,21 +2579,20 @@ class MatchingGame {
 
               this.firstSelected = null;
               this.isProcessing = false;
-              this.render();
 
-              if (this.matchedCount === this.selectedWords.length) {
+              if (this.matchedCount === this.enCards.length) {
+                this._stopTimer();
                 AudioService.playSfx('win');
-                setTimeout(() => {
-                  this.renderComplete();
-                }, 400);
+                setTimeout(() => this.renderComplete(), 400);
+              } else {
+                this.render();
               }
             }, 500);
+            this._matchTimeout = t;
           } else {
-            // HATALI EŞLEŞME:
-            // Kırmızı renk ile sarsılma (shake) animasyonu ve sıfırlama
             AudioService.playSfx('wrong');
-            WordStore.recordMistake(first.card.wordId);
-            WordStore.recordMistake(second.card.wordId);
+            WordStore.recordMistake(first.card.wordId, 'matching');
+            WordStore.recordMistake(second.card.wordId, 'matching');
 
             first.el.classList.remove('selected');
             second.el.classList.remove('selected');
@@ -1759,27 +2612,75 @@ class MatchingGame {
   }
 
   renderComplete() {
+    this._stopTimer();
+    this.phase = 'result';
     const stage = document.getElementById('game-stage');
     if (!stage) return;
+
+    const totalMs = Date.now() - this.startTime;
+    const prevBest = this._bestFor(this.difficulty);
+    const isNewBest = prevBest === null || totalMs < prevBest;
+    if (isNewBest) this._saveBest(this.difficulty, totalMs);
+
     stage.innerHTML = `
-      <div class="text-center p-6 max-w-md">
-        <div class="w-16 h-16 rounded-2xl bg-purple-500/20 text-purple-400 mx-auto flex items-center justify-center mb-4">
+      <div class="text-center p-6 max-w-md flex flex-col items-center">
+        ${isNewBest ? `
+          <div class="mb-3 px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-sm font-bold flex items-center gap-1.5 animate-bounce">
+            <i data-lucide="party-popper" class="w-4 h-4"></i> 🎉 Yeni Rekor!
+          </div>
+        ` : ''}
+        <div class="w-16 h-16 rounded-2xl bg-purple-500/20 text-purple-400 flex items-center justify-center mb-4">
           <i data-lucide="sparkles" class="w-8 h-8"></i>
         </div>
-        <h3 class="text-2xl font-bold font-display text-white mb-2">Tebrikler!</h3>
-        <p class="text-slate-300 text-sm mb-4">Tahtadaki tüm kelimeleri ${this.moves} hamlede temizledin! Skor: <span class="text-brand-400 font-bold font-mono text-xl">${this.score}</span></p>
-        <div class="flex items-center justify-center gap-3">
-          <button onclick="launchGame('matching')" class="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold text-sm transition">Tekrar Oyna</button>
-          <button onclick="closeGame()" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm transition border border-slate-700">Menüye Dön</button>
+        <h3 class="text-2xl font-bold font-display text-white mb-1">Tebrikler!</h3>
+        <p class="text-slate-400 text-sm mb-4">${this.enCards.length} çifti ${this.moves} hamlede tamamladın!</p>
+
+        <div class="grid grid-cols-2 gap-2.5 w-full mb-4">
+          <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-3 text-center">
+            <p class="text-[11px] text-slate-400 mb-0.5">Süre</p>
+            <p class="text-xl font-bold text-amber-400 font-mono">${MatchingGame.formatTime(totalMs)}</p>
+          </div>
+          <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-3 text-center">
+            <p class="text-[11px] text-slate-400 mb-0.5">Rekor (${MatchingGame.DIFFICULTIES[this.difficulty].label})</p>
+            <p class="text-xl font-bold text-emerald-400 font-mono">${MatchingGame.formatTime(isNewBest ? totalMs : prevBest)}</p>
+          </div>
+          <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-3 text-center">
+            <p class="text-[11px] text-slate-400 mb-0.5">Hamle</p>
+            <p class="text-xl font-bold text-white">${this.moves}</p>
+          </div>
+          <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-3 text-center">
+            <p class="text-[11px] text-slate-400 mb-0.5">Skor</p>
+            <p class="text-xl font-bold text-brand-400 font-mono">${this.score}</p>
+          </div>
+        </div>
+
+        <div class="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-3 w-full">
+          <button id="matching-new-btn" class="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold text-sm transition flex items-center justify-center gap-2">
+            <i data-lucide="refresh-cw" class="w-4 h-4"></i> Yeni Oyun (Farklı Kelimeler)
+          </button>
+          <button id="matching-diff-btn2" class="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-semibold text-sm transition flex items-center justify-center gap-2">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> Zorluk Değiştir
+          </button>
+          <button onclick="closeGame()" class="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm transition border border-slate-700">Menüye Dön</button>
         </div>
       </div>
     `;
     if (window.lucide) window.lucide.createIcons();
+
+    const newBtn = document.getElementById('matching-new-btn');
+    if (newBtn) newBtn.addEventListener('click', () => this.startGame());
+    const diffBtn2 = document.getElementById('matching-diff-btn2');
+    if (diffBtn2) diffBtn2.addEventListener('click', () => this.renderDifficultySelect());
   }
 
-  destroy() {}
+  destroy() {
+    this._stopTimer();
+    if (this._matchTimeout) {
+      clearTimeout(this._matchTimeout);
+      this._matchTimeout = null;
+    }
+  }
 }
-
 // ============================================================================
 // MODÜL 6: EL YAZISI (KALEM - SPELLING)
 // ============================================================================
@@ -4445,17 +5346,20 @@ const AuthStore = {
 
   async fetchUserWords() {
     if (!this.user || !this.user.id) return;
+    // words: try bloğu dışında tanımlı; catch içinde render hatası ile çekme hatası ayrılsın
+    let words = [];
+    let fetched = false;
     try {
       // 1. Kullanıcının Kelimelerini Çek
       const resp = await fetch(`/api/words?user_id=${this.user.id}`);
-      let words = [];
       if (resp.ok) {
         const data = await resp.json();
         if (data.success && Array.isArray(data.words)) {
+          fetched = true;
           words = data.words.map((w, idx) => ({
             id: w.id ? String(w.id) : 'word_' + idx,
-            en: w.english || w.en,
-            tr: w.turkish || w.tr,
+            en: String(w.english != null ? w.english : (w.en != null ? w.en : '')).trim(),
+            tr: String(w.turkish != null ? w.turkish : (w.tr != null ? w.tr : '')).trim(),
             ipa: w.pronunciation || w.ipa || '',
             example_en: w.example_en || '',
             example_tr: w.example_tr || '',
@@ -4474,9 +5378,9 @@ const AuthStore = {
         if (wrongResp.ok) {
           const wrongData = await wrongResp.json();
           if (wrongData.success && Array.isArray(wrongData.wrongWords)) {
-            const wrongSet = new Set(wrongData.wrongWords.map(w => w.toLowerCase()));
+            const wrongSet = new Set(wrongData.wrongWords.map(w => String(w || '').toLowerCase()));
             words.forEach(w => {
-              if (wrongSet.has(w.en.toLowerCase())) {
+              if (w.en && wrongSet.has(String(w.en).toLowerCase())) {
                 w.wrongCount = 1;
               }
             });
@@ -4502,7 +5406,13 @@ const AuthStore = {
       WordStore.setWords(words);
     } catch (e) {
       console.warn('Backend words fetch error:', e);
-      WordStore.setWords([]);
+      // Yalnızca kelimeler ÇEKİLEMEDİYSE listeyi temizle. Render hatası olsa bile
+      // (ör. tek bir bozuk kayıt) veri korunur; böylece arayüz boş kalmaz.
+      if (!fetched) {
+        WordStore.setWords([]);
+      } else {
+        WordStore.notifyUpdate();
+      }
     }
   },
 
@@ -4614,10 +5524,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.querySelectorAll('.game-card[data-game]').forEach(card => {
     card.addEventListener('click', () => {
+      // Düzenleme modunda kart tıklaması oyunu başlatmaz
+      if (typeof DashboardLayoutUI !== 'undefined' && DashboardLayoutUI.editing) return;
       const gameId = card.getAttribute('data-game');
       launchGame(gameId);
     });
   });
+
+  try {
+    DashboardLayoutUI.init();
+  } catch (err) {
+    console.warn('Dashboard düzen modu kurulum uyarısı:', err);
+  }
 
   const quickStartBtn = document.getElementById('quick-start-btn');
   if (quickStartBtn) {
