@@ -13,7 +13,8 @@ async function fetchWordPool(pool, userId, studyOnly) {
   if (studyOnly) {
     const res = await pool.query(
       `SELECT uw.id, uw.english, uw.turkish, uw.pronunciation,
-              uw.example_en, uw.example_tr, uw.pos
+              uw.example_en, uw.example_tr, uw.pos,
+              uw.yds_level, uw.part_of_speech, uw.synonyms
          FROM user_words uw
          INNER JOIN user_study_list usl
                  ON LOWER(usl.english) = LOWER(uw.english) AND usl.user_id = uw.user_id
@@ -25,7 +26,8 @@ async function fetchWordPool(pool, userId, studyOnly) {
   }
 
   const res = await pool.query(
-    `SELECT id, english, turkish, pronunciation, example_en, example_tr, pos
+    `SELECT id, english, turkish, pronunciation, example_en, example_tr, pos,
+            yds_level, part_of_speech, synonyms
        FROM user_words
       WHERE user_id = $1
       ORDER BY id ASC`,

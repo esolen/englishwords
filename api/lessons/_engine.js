@@ -149,17 +149,27 @@ function chunkBalanced(sorted, parts) {
 }
 
 /**
- * Havuzu otomatik zorluk sınıflandırmasıyla TAM 5 seviyeye böler.
- * Özellik bazlı sınıflandırma seviyeleri dengesiz bırakırsa (boş seviye
- * oluşursa) kelimeler zorluk puanına göre 5 dengeli parçaya yeniden dağıtılır.
+ * Havuzu seviyelere böler. Kelimelerde kalıcı `yds_level` (1..5) alanı varsa
+ * doğrudan onu kullanır; aksi halde otomatik zorluk puanlamasına düşer.
+ * Boş seviye oluşursa (veya hiç yds_level yoksa) kelimeler zorluk puanına göre
+ * dengeli parçalara yeniden dağıtılır.
  * Döndürülen: [{ levelNumber, words }, ...] (her zaman 5 eleman)
  */
 function buildFiveLevels(words) {
   const list = Array.isArray(words) ? words : [];
+
+  // Kelimelerin çoğunda geçerli yds_level varsa doğrudan onu kullan
+  const withYds = list.filter(w => Number(w.yds_level) >= 1 && Number(w.yds_level) <= LEVEL_COUNT);
+  const useYds = withYds.length >= Math.max(1, Math.floor(list.length * 0.6));
+
   const scored = list.map(word => ({
     word,
     score: difficultyScore(word),
-    level: classifyDifficultyLevel(word)
+    level: useYds
+      ? (Number(word.yds_level) >= 1 && Number(word.yds_level) <= LEVEL_COUNT
+        ? Number(word.yds_level)
+        : classifyDifficultyLevel(word))
+      : classifyDifficultyLevel(word)
   }));
 
   const buckets = Array.from({ length: LEVEL_COUNT }, () => []);
@@ -340,6 +350,17 @@ const SENTENCE_TEMPLATES = {
   ]
 };
 
+// Yapay/şablon örnek cümleleri tespit et (ör. "The word X appeared in...")
+function isArtificialExample(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t) return false;
+  return /^the word\b/.test(t)
+    || /appeared in/.test(t)
+    || /is an? (english|turkish) word/.test(t)
+    || /in the dictionary/.test(t)
+    || /\bexample sentence\b/.test(t);
+}
+
 // Fiil çekimlerini (çoğul -s, geçmiş -ed, -ing vb.) yakalayan regex
 function inflectedRegex(word) {
   const esc = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -384,7 +405,8 @@ function buildExample(word, seedIndex) {
   const dbExampleTr = String(word.example_tr || word.exampleTr || '').trim();
 
   // 1. Veritabanında hazır ve geçerli örnek cümle varsa doğrudan kullan
-  if (dbExampleEn) {
+  //    (yapay/şablon cümleler atlanır -> doğal cümleye düşülür)
+  if (dbExampleEn && !isArtificialExample(dbExampleEn)) {
     const question = blankOutWord(dbExampleEn, en, tr);
     if (question) {
       return {
@@ -473,6 +495,9 @@ function buildLesson(selectedWords, distractorPool, levelNumber, totalLevels) {
     turkish: w.turkish,
     pronunciation: w.pronunciation || '',
     pos: examples[i].pos,
+    yds_level: Number(w.yds_level) >= 1 && Number(w.yds_level) <= LEVEL_COUNT ? Number(w.yds_level) : levelNumber,
+    part_of_speech: w.part_of_speech || examples[i].pos,
+    synonyms: Array.isArray(w.synonyms) ? w.synonyms : [],
     example_en: examples[i].example_en,
     example_tr: examples[i].example_tr
   }));
@@ -623,6 +648,7 @@ module.exports = {
   classifyDifficultyLevel,
   buildFiveLevels,
   detectPos,
+  isArtificialExample,
   buildExample,
   buildOptions,
   buildLesson,

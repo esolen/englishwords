@@ -27,7 +27,7 @@
   <!-- Tesseract.js (El Yazısı OCR Motoru) CDN -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <!-- Yerel Stiller (Cache Busting v=2.0) -->
-  <link rel="stylesheet" href="style.css?v=4.1">
+  <link rel="stylesheet" href="style.css?v=4.2">
   <script>
     tailwind.config = {
       theme: {
@@ -328,9 +328,9 @@
             <h4 class="font-display font-bold text-lg text-white group-hover:text-emerald-300 transition">Kolaydan Zora</h4>
             <span id="user-current-level-badge" class="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950">Seviye 1</span>
           </div>
-          <p class="text-slate-400 text-xs mt-1 leading-relaxed">Kelimeler otomatik zorluk sınıflandırmasıyla 5 seviyeye bölünür. Her seviyede 10 kelimeyi interaktif kelime kartlarıyla öğren, ardından 5 şıklı boşluk doldurma testiyle %80 başarı sağlayarak bir üst seviyeye geç.</p>
+          <p class="text-slate-400 text-xs mt-1 leading-relaxed">Tüm kelimeler YDS standardında (temel, orta, ileri akademik, çeldirici, phrasal/bağlaç) otomatik sınıflandırılır ve 5 seviyeye bölünür. Her seviyede 10 kelimeyi YDS bağlamlı örnek cümleler ve eş anlamlılarla öğren, ardından 5 şıklı boşluk doldurma testiyle %80 başarı sağlayarak bir üst seviyeye geç.</p>
           <div class="mt-4 flex items-center justify-between pt-3 border-t border-slate-800/80">
-            <span class="text-xs font-medium text-emerald-400 flex items-center gap-1"><i data-lucide="layers" class="w-3.5 h-3.5"></i> Kelime Kartları • 5 Seviye</span>
+            <span class="text-xs font-medium text-emerald-400 flex items-center gap-1"><i data-lucide="layers" class="w-3.5 h-3.5"></i> YDS Seviyeleri • 5 Kademe</span>
             <span class="text-xs font-semibold text-emerald-400 group-hover:translate-x-1 transition flex items-center gap-1">Derslere Başla &rarr;</span>
           </div>
         </div>
@@ -526,7 +526,7 @@
             <span class="text-[11px] font-mono font-bold text-slate-300"><span id="game-fuse-label">15</span>s</span>
           </div>
           <div class="w-full h-3 bg-slate-900 rounded-full overflow-hidden border border-rose-500/30">
-            <div id="game-fuse-bar" class="h-full bg-gradient-to-r from-amber-500 to-rose-500 transition-all duration-150 ease-linear" style="width: 100%;"></div>
+            <div id="game-fuse-bar" class="h-full bg-gradient-to-r from-amber-500 to-rose-500" style="width: 100%;"></div>
           </div>
         </div>
 
@@ -661,6 +661,6 @@
   <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
 
   <!-- Yerel Uygulama Scripti (Cache Busting v=3.0) -->
-  <script src="app.js?v=4.1"></script>
+  <script src="app.js?v=4.2"></script>
 </body>
 </html>
