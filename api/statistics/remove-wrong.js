@@ -22,23 +22,36 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ success: false, error: 'user_id ve word zorunludur.' });
     }
 
-    // Aktif kullanıcının tüm statistics kayıtlarındaki wrong_words havuzundan bu kelimeyi temizle
+    // Aktif kullanıcının tüm statistics kayıtlarındaki wrong_words/wrong_counts havuzundan bu kelimeyi temizle
     const records = await pool.query(
-      'SELECT id, wrong_words FROM user_statistics WHERE user_id = $1',
+      'SELECT id, wrong_words, wrong_counts FROM user_statistics WHERE user_id = $1',
       [userId]
     );
 
     for (const row of records.rows) {
+      let changed = false;
+
+      let filtered = row.wrong_words;
       if (Array.isArray(row.wrong_words)) {
-        const filtered = row.wrong_words.filter(w => {
+        filtered = row.wrong_words.filter(w => {
           if (typeof w === 'string') return w.toLowerCase() !== word;
           if (w && w.english) return w.english.toLowerCase() !== word;
           return true;
         });
+        changed = filtered.length !== row.wrong_words.length;
+      }
 
+      let counts = row.wrong_counts;
+      if (counts && typeof counts === 'object' && counts[word] !== undefined) {
+        counts = { ...counts };
+        delete counts[word];
+        changed = true;
+      }
+
+      if (changed) {
         await pool.query(
-          'UPDATE user_statistics SET wrong_words = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-          [JSON.stringify(filtered), row.id]
+          'UPDATE user_statistics SET wrong_words = $1, wrong_counts = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
+          [JSON.stringify(filtered || []), JSON.stringify(counts || {}), row.id]
         );
       }
     }

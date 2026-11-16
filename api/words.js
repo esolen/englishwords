@@ -30,7 +30,7 @@ module.exports = async function handler(req, res) {
   try {
     await ensureTables();
     const result = await pool.query(
-      'SELECT id, english, turkish, pronunciation FROM user_words WHERE user_id = $1 ORDER BY id DESC',
+      'SELECT id, english, turkish, pronunciation, example_en, example_tr, pos FROM user_words WHERE user_id = $1 ORDER BY id DESC',
       [userId]
     );
 
@@ -38,7 +38,10 @@ module.exports = async function handler(req, res) {
       id: r.id,
       english: r.english,
       turkish: r.turkish,
-      pronunciation: r.pronunciation || ''
+      pronunciation: r.pronunciation || '',
+      example_en: r.example_en || '',
+      example_tr: r.example_tr || '',
+      pos: r.pos || ''
     }));
 
     return res.status(200).json({

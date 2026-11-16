@@ -1,4 +1,4 @@
-const { getPool, ensureTables, parseBody } = require('../_db');
+const { getPool, ensureTables, parseBody, incrementWrongWords } = require('../_db');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
@@ -24,27 +24,27 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ success: false, error: 'user_id ve game_type zorunludur.' });
     }
 
-    // Check if record exists for this user and game
+    // Yanlış cevaplanan kelimeleri Zorlu Kelimeler havuzuna +1 olarak işle
+    if (wrongWords.length > 0) {
+      await incrementWrongWords(pool, userId, wrongWords, 'difficult_words');
+    }
+
+    // Oyun tipi bazlı skor kaydı (en yüksek skor korunur)
     const existing = await pool.query(
-      'SELECT id, score, wrong_words FROM user_statistics WHERE user_id = $1 AND game_type = $2',
+      'SELECT id, score FROM user_statistics WHERE user_id = $1 AND game_type = $2',
       [userId, gameType]
     );
 
     if (existing.rows.length > 0) {
-      const current = existing.rows[0];
-      const mergedWrongWords = Array.from(
-        new Set([...(current.wrong_words || []), ...wrongWords])
-      );
-      const newScore = Math.max(current.score, score);
-
+      const newScore = Math.max(existing.rows[0].score || 0, score);
       await pool.query(
-        'UPDATE user_statistics SET score = $1, wrong_words = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
-        [newScore, JSON.stringify(mergedWrongWords), current.id]
+        'UPDATE user_statistics SET score = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [newScore, existing.rows[0].id]
       );
     } else {
       await pool.query(
         'INSERT INTO user_statistics (user_id, game_type, score, wrong_words) VALUES ($1, $2, $3, $4)',
-        [userId, gameType, score, JSON.stringify(wrongWords)]
+        [userId, gameType, score, JSON.stringify([])]
       );
     }
 
