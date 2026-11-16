@@ -10,6 +10,7 @@ const WordStore = {
   useOnlyStudyList: false, // "Sadece Seçtiğim Kelimelerle Çalış" Filtresi
   useOnlyDifficult: false, // "Sadece Zorlu Kelimelerle Çalış" Filtresi
   DIFFICULT_THRESHOLD: 1,
+  FILTER_STORAGE_KEY: 'wordplay_filters_v1',
 
   // Bir kelime "zorlu" mu? (yanlış sayısı eşiğin üstünde)
   isDifficultWord(word) {
@@ -32,6 +33,46 @@ const WordStore = {
       if (this.useOnlyStudyList) return inStudy;
       return isDifficult;
     });
+  },
+
+  // Ana kelime listesi ASLA filtrelenmiş listeyle ezilmez; aktif havuz her
+  // çağrıda kutucukların O ANKİ durumuna göre dinamik hesaplanır.
+  // (getWords ile aynı sözleşme; okunabilirlik için takma ad.)
+  getActiveWordPool() {
+    return this.getWords();
+  },
+
+  // Filtre durumunu localStorage'a yazar (çevrimdışı/yeniden yükleme tutarlılığı).
+  persistFilters() {
+    try {
+      localStorage.setItem(this.FILTER_STORAGE_KEY, JSON.stringify({
+        studyList: this.useOnlyStudyList === true,
+        difficult: this.useOnlyDifficult === true
+      }));
+    } catch (e) { /* yoksay */ }
+  },
+
+  // localStorage'daki filtre durumunu okur (yoksa null döner).
+  loadPersistedFilters() {
+    try {
+      const raw = localStorage.getItem(this.FILTER_STORAGE_KEY);
+      if (!raw) return null;
+      const o = JSON.parse(raw);
+      return { studyList: o.studyList === true, difficult: o.difficult === true };
+    } catch (e) { return null; }
+  },
+
+  // Tek bir filtreyi ayarlar: state + localStorage senkron güncellenir.
+  // Filtre değiştiğinde modül içi (oyun) önbelleği geçersiz kılınır ki bir
+  // sonraki soru doğrudan yeni havuzdan çekilsin.
+  setFilter(name, on) {
+    const next = on === true;
+    if (name === 'study') this.useOnlyStudyList = next;
+    else if (name === 'difficult') this.useOnlyDifficult = next;
+    else return;
+    this.persistFilters();
+    if (typeof resetModuleCaches === 'function') resetModuleCaches();
+    this.notifyUpdate();
   },
 
   // Çeldirici/soru üretimi için filtrelerden bağımsız tam geçerli kelime havuzu.
@@ -717,12 +758,13 @@ function setupModals() {
   const studyToggle = document.getElementById('custom-study-filter-toggle');
   if (studyToggle) {
     studyToggle.addEventListener('change', (e) => {
-      WordStore.useOnlyStudyList = e.target.checked;
+      // State + localStorage senkron güncellenir; modül önbelleği sıfırlanır.
+      WordStore.setFilter('study', e.target.checked);
       const filteredCount = WordStore.getWords().length;
       if (WordStore.useOnlyStudyList) {
         showToast(`Özel Çalışma Havuzu Aktif! (${filteredCount} kelime)`, 'success');
       } else {
-        showToast('Tüm kelime havuzuna dönüldü.', 'info');
+        showToast(`Tüm kelime havuzuna dönüldü. (${filteredCount} kelime)`, 'info');
       }
       updateHeaderBadges();
     });
@@ -732,15 +774,25 @@ function setupModals() {
   const difficultToggle = document.getElementById('custom-difficult-filter-toggle');
   if (difficultToggle) {
     difficultToggle.addEventListener('change', (e) => {
-      WordStore.useOnlyDifficult = e.target.checked;
+      // State + localStorage senkron güncellenir; modül önbelleği sıfırlanır.
+      WordStore.setFilter('difficult', e.target.checked);
       const filteredCount = WordStore.getWords().length;
       if (WordStore.useOnlyDifficult) {
         showToast(`Zorlu Kelimeler Havuzu Aktif! (${filteredCount} kelime)`, 'success');
       } else {
-        showToast('Tüm kelime havuzuna dönüldü.', 'info');
+        showToast(`Tüm kelime havuzuna dönüldü. (${filteredCount} kelime)`, 'info');
       }
       updateHeaderBadges();
     });
+  }
+
+  // Kaydedilmiş filtre durumunu geri yükle (state + checkbox senkron kalır).
+  const savedFilters = WordStore.loadPersistedFilters();
+  if (savedFilters) {
+    WordStore.useOnlyStudyList = savedFilters.studyList === true;
+    WordStore.useOnlyDifficult = savedFilters.difficult === true;
+    if (studyToggle) studyToggle.checked = WordStore.useOnlyStudyList;
+    if (difficultToggle) difficultToggle.checked = WordStore.useOnlyDifficult;
   }
 
   // Yatay Kaydırılabilir Sekmeler Dinleyicisi (Swipeable Tabs Filter)
@@ -1093,6 +1145,26 @@ const DEFAULT_CARD_ORDER = [
 // 8. Oyun Yöneticisi (Game Manager)
 const GAMES = {};
 let currentGameInstance = null;
+
+// Aktif filtre anahtarı değiştiğinde çağrılır: modül içi soru kuyruklarını ve
+// önbelleğe alınmış kelime listelerini temizler ki bir sonraki soru doğrudan
+// güncel havuzdan çekilsin. Açık bir oyun varsa havuz anlık görüntüsü tazelenir.
+function resetModuleCaches() {
+  if (!currentGameInstance) return;
+  try {
+    // Oyun içi soru kuyruğu / önbellek (ör. Kelime Bombası _wordQueue)
+    if ('_wordQueue' in currentGameInstance) currentGameInstance._wordQueue = null;
+
+    // Havuz anlık görüntüsünü tutan alanları güncel havuzla tazele (boş havuzla ezme)
+    const fresh = WordStore.getWords();
+    if (fresh.length === 0) return;
+    ['words', 'allWords', 'pool'].forEach(key => {
+      if (Array.isArray(currentGameInstance[key])) currentGameInstance[key] = fresh;
+    });
+  } catch (err) {
+    console.warn('Modül önbelleği sıfırlama uyarısı:', err);
+  }
+}
 
 function setGameHeader(title, subtitle) {
   const titleEl = document.getElementById('active-game-title');
