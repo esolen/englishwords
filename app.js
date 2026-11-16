@@ -3087,19 +3087,20 @@ GAMES['pronunciation'] = PronunciationGame;
 GAMES['time-attack'] = TimeAttackGame;
 
 // ============================================================================
-// MODÜL 12: KELİME BOMBASI (BAĞIMSIZ MODÜL — eski Ekstra Oyunlar Odası'ndan çıkarıldı)
-//  * Animasyonlu fitilli bomba + kelime zorluğuna göre dinamik azalan süre çubuğu
-//  * Türkçe anlam ipucu, karışık (scrambled) harf butonları
-//  * Tıklama veya klavye ile harfleri doğru sıraya diz → bomba etkisiz (yeşil onay),
-//    skor artar, yeni kelimeye geçilir
-//  * Süre biterse patlama efekti, can azalır ve doğru kelime gösterilir
-//  * Yanlış yapılan kelimeler otomatik "Zorlu Kelimeler" listesine kaydedilir
+// MODÜL 12: KELİME BOMBASI — 4 ŞIKLI HIZLI YARIŞ (bağımsız modül)
+//  * Kelimeler doğrudan veritabanından dinamik çekilir (WordStore.getWords()).
+//    "Sadece Seçtiğin Kelimelerle Çalış" filtresi aktifse yalnızca study-list.
+//  * Hedef kartta İngilizce kelime + telaffuz butonu (🔊).
+//  * 2x2 ızgarada 4 şık: 1 doğru anlam + 3 rastgele çeldirici.
+//  * Fitil biter veya yanlış şık seçilirse can (-1); doğru şık yeşil,
+//    seçilen yanlış şık kırmızı vurgulanır.
+//  * Yanlış yapılan kelime "Zorlu Kelimeler" listesine kaydedilir
+//    (WordStore.recordMistake → /api/words/wrong + /api/statistics/update).
+//  * Canlar bitince modern Oyun Sonu / Skor Özet ekranı açılır.
 // ============================================================================
 class WordBombGame {
   constructor() {
-    this.words = getWordBombPool();
-    this.pool = this.words.slice();
-    this.queue = shuffleArray(this.pool);
+    this.pool = getWordBombPool();
     this.maxLives = 3;
     this.lives = this.maxLives;
     this.score = 0;
@@ -3107,26 +3108,27 @@ class WordBombGame {
     this.wrongCount = 0;
     this.combo = 0;
     this.maxCombo = 0;
+
+    this.question = null;   // { word, correct, options:[{text,correct}] }
+    this.duration = 8;      // Fitil süresi (saniye)
+    this.remaining = 8;
     this.fuseTimer = null;
-    this.target = null;
-    this.letters = [];
-    this.scrambled = [];
-    this.selected = [];
-    this.duration = 15;
-    this.remaining = 15;
+    this.locked = false;    // Cevap verildikten sonra kilit
     this.finished = false;
-    this.isExploding = false;
     this.keyboardHandler = null;
   }
 
   init() {
-    setGameHeader('Kelime Bombası', 'Fitil bitmeden harfleri doğru sıraya diz!');
+    setGameHeader('Kelime Bombası', 'Fitil bitmeden doğru anlamı seç!');
+    this.finished = false;
+    this.locked = false;
+
     const livesContainer = document.getElementById('game-lives-container');
     if (livesContainer) livesContainer.classList.remove('hidden');
     const livesDisplay = document.getElementById('game-lives-display');
     if (livesDisplay) livesDisplay.textContent = this.lives;
 
-    if (!this.words || this.words.length === 0) {
+    if (!this.pool || this.pool.length < 4) {
       this.renderNoWords();
       return;
     }
@@ -3134,249 +3136,253 @@ class WordBombGame {
     this.keyboardHandler = (e) => this.onPhysicalKey(e);
     window.addEventListener('keydown', this.keyboardHandler);
 
-    this.newBomb();
+    this.renderFrame();
+    this.nextQuestion();
   }
 
-  renderNoWords() {
-    const stage = document.getElementById('game-stage');
-    if (!stage) return;
-    stage.innerHTML = `
-      <div class="text-center p-6 max-w-md">
-        <div class="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 mx-auto flex items-center justify-center mb-4">
-          <i data-lucide="alert-triangle" class="w-8 h-8"></i>
-        </div>
-        <h3 class="text-xl font-bold font-display text-white mb-2">Uygun Kelime Yok</h3>
-        <p class="text-slate-300 text-sm mb-4">Kelime Bombası yalnızca 3-10 harfli, tek kelimelik İngilizce kelimelerle oynanır. Lütfen uygun kelime ekleyin.</p>
-        <button onclick="closeGame()" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700 transition">Menüye Dön</button>
-      </div>`;
-    if (window.lucide) window.lucide.createIcons();
+  // Türkçe karşılığın ilk (en yaygın) anlamını al
+  displayMeaning(word) {
+    const tr = (word.tr || '').trim();
+    return tr ? tr.split(',')[0].trim() : '(anlam yok)';
   }
 
-  nextFromDeck() {
-    if (this.pool.length === 0) return null;
-    if (this.queue.length === 0) this.queue = shuffleArray(this.pool);
-    return this.queue.pop();
+  buildQuestion() {
+    const word = this.pool[Math.floor(Math.random() * this.pool.length)];
+    const correctText = this.displayMeaning(word);
+
+    // Çeldiriciler: farklı kelimelerden, doğru cevapla aynı olmayan 3 anlam
+    const candidates = shuffleArray(
+      this.pool.filter(w => String(w.id) !== String(word.id) && this.displayMeaning(w) !== correctText)
+    );
+    const distractors = [];
+    const seen = new Set([correctText.toLowerCase()]);
+    for (const w of candidates) {
+      const text = this.displayMeaning(w);
+      const key = text.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      distractors.push(text);
+      if (distractors.length === 3) break;
+    }
+    if (distractors.length < 3) return null;
+
+    const options = shuffleArray([
+      { text: correctText, correct: true },
+      ...distractors.map(t => ({ text: t, correct: false }))
+    ]);
+
+    return { word, correct: correctText, options };
   }
 
-  newBomb() {
+  nextQuestion() {
+    if (this.finished) return;
     if (this.lives <= 0) { this.renderGameOver(); return; }
-    const w = this.nextFromDeck();
-    if (!w) { this.renderGameOver(); return; }
 
-    this.target = w;
-    this.letters = w.en.toUpperCase().split('');
-    this.scrambled = shuffleArray(this.letters.map((ch, i) => ({ ch, idx: i })));
-    this.selected = [];
-    this.finished = false;
-    this.isExploding = false;
+    const q = this.buildQuestion();
+    if (!q) { this.renderNoWords(); return; }
 
-    // Kelime uzunluğuna/zorluğuna göre dinamik süre (3 harf→12s ... 10 harf→20s)
-    this.duration = Math.min(20, Math.max(12, this.letters.length * 2 + 6));
+    this.question = q;
+    this.locked = false;
     this.remaining = this.duration;
 
-    this.render();
+    this.renderQuestion();
     this.startFuse();
   }
 
-  render() {
-    const stage = document.getElementById('game-stage');
+  renderFrame() {
+    const stage = this.stage;
     if (!stage) return;
+    stage.innerHTML = `
+      <div class="w-full max-w-lg flex flex-col items-center">
+        <!-- Hedef Kart (İngilizce kelime + telaffuz) -->
+        <div class="w-full p-5 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 border border-rose-500/30 text-center mb-5 shadow-lg shadow-rose-900/20">
+          <span class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Bu kelimenin Türkçe anlamı?</span>
+          <div class="flex items-center justify-center gap-2 mt-1">
+            <h3 id="bomb-target-word" class="text-3xl sm:text-4xl font-extrabold text-white font-display break-all">—</h3>
+            <button id="bomb-speak-btn" class="p-2 rounded-lg bg-slate-700/70 hover:bg-slate-600 text-brand-300 transition shrink-0" title="Telaffuzu dinle (🔊)">
+              <i data-lucide="volume-2" class="w-5 h-5"></i>
+            </button>
+          </div>
+          <p id="bomb-combo" class="text-xs text-amber-300 mt-2 font-semibold hidden">🔥 Seri: <span id="bomb-combo-val">x0</span></p>
+        </div>
+
+        <!-- 2x2 Şık Paneli -->
+        <div id="bomb-options" class="grid grid-cols-2 gap-3 w-full"></div>
+      </div>`;
+    if (window.lucide) window.lucide.createIcons();
+    this.showTopFuse(true);
+    const speakBtn = document.getElementById('bomb-speak-btn');
+    if (speakBtn) speakBtn.addEventListener('click', () => this.speak());
+  }
+
+  renderQuestion() {
+    const stage = this.stage;
+    if (!stage || !this.question) return;
 
     updateGameScore(this.score);
     const livesDisplay = document.getElementById('game-lives-display');
     if (livesDisplay) livesDisplay.textContent = this.lives;
 
-    const pct = Math.max(0, (this.remaining / this.duration) * 100);
-    const critical = this.remaining < this.duration * 0.35;
+    const wordEl = document.getElementById('bomb-target-word');
+    if (wordEl) wordEl.textContent = this.question.word.en;
 
-    stage.innerHTML = `
-      <div class="w-full max-w-lg flex flex-col items-center">
-        <!-- Fitil: animasyonlu bomba + süre çubuğu -->
-        <div class="flex items-center gap-3 mb-4 w-full">
-          <div class="relative w-14 h-14 rounded-full bg-gradient-to-br from-rose-500 to-rose-700 flex items-center justify-center text-white shadow-lg shadow-rose-600/40 ${critical ? 'games-room-bomb-pulse' : ''}">
-            <i data-lucide="bomb" class="w-8 h-8"></i>
-            <span class="absolute -top-1 -right-1 text-base ${critical ? 'animate-ping' : ''}">🔥</span>
-          </div>
-          <div class="flex-grow">
-            <span class="text-[11px] ${critical ? 'text-rose-400' : 'text-amber-400'} font-bold block mb-1">FİTİL (<span id="bomb-time-label">${Math.ceil(this.remaining)}</span>s)</span>
-            <div class="w-full h-3 bg-slate-800 rounded-full overflow-hidden border border-rose-500/30">
-              <div id="fuse-bar" class="h-full bg-gradient-to-r from-amber-500 to-rose-500 transition-all duration-200 ease-linear" style="width: ${pct}%;"></div>
-            </div>
-          </div>
-        </div>
+    const comboEl = document.getElementById('bomb-combo');
+    const comboVal = document.getElementById('bomb-combo-val');
+    if (comboEl) comboEl.classList.toggle('hidden', this.combo < 2);
+    if (comboVal) comboVal.textContent = 'x' + this.combo;
 
-        <!-- Türkçe İpucu -->
-        <div class="p-3 rounded-xl bg-slate-800 border border-slate-700 text-center mb-4 w-full">
-          <span class="text-[11px] text-slate-400 font-medium">İmha İpucu (Türkçe)</span>
-          <h3 class="text-xl font-extrabold text-white font-display">${escapeHtml(this.target.tr)}</h3>
-          <p class="text-[11px] text-slate-500 mt-0.5">${this.letters.length} harfli kelime</p>
-        </div>
+    const opts = document.getElementById('bomb-options');
+    if (opts) {
+      opts.innerHTML = this.question.options.map((o, i) => `
+        <button class="bomb-option" data-idx="${i}">
+          <span class="bomb-option-key">${'ABCD'[i]}</span>
+          <span class="bomb-option-text">${escapeHtml(o.text)}</span>
+        </button>
+      `).join('');
+      opts.querySelectorAll('.bomb-option').forEach(btn =>
+        btn.addEventListener('click', () => this.answer(Number(btn.getAttribute('data-idx')))));
+    }
 
-        <!-- Hedef Kelime Slotları -->
-        <div id="bomb-slots" class="flex gap-2 mb-4 min-h-[48px] p-2 bg-slate-900 rounded-xl border border-slate-800 w-full justify-center flex-wrap">
-          ${this.letters.map((_, i) => {
-            const sel = this.selected[i];
-            return sel
-              ? `<div class="games-room-slot games-room-slot-filled">${escapeHtml(sel.ch)}</div>`
-              : `<div class="games-room-slot games-room-slot-empty">_</div>`;
-          }).join('')}
-        </div>
-
-        <!-- Karışık Harf Butonları -->
-        <div class="flex flex-wrap gap-2 justify-center mb-4">
-          ${this.scrambled.map((s, i) => `
-            <button class="games-room-letter ${s.used ? 'games-room-letter-used' : ''}" data-slot="${i}" ${s.used ? 'disabled' : ''}>${escapeHtml(s.ch)}</button>
-          `).join('')}
-        </div>
-
-        <!-- Kontroller -->
-        <div class="flex gap-3">
-          <button id="bomb-undo" class="games-room-mini-btn"><i data-lucide="delete" class="w-3.5 h-3.5"></i> Geri Al</button>
-          <button id="bomb-clear" class="games-room-mini-btn"><i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Temizle</button>
-        </div>
-      </div>`;
-
-    if (window.lucide) window.lucide.createIcons();
-    this.bind();
+    const bar = document.getElementById('game-fuse-bar');
+    if (bar) bar.style.width = '100%';
+    const lbl = document.getElementById('game-fuse-label');
+    if (lbl) lbl.textContent = String(Math.ceil(this.duration));
   }
 
-  bind() {
+  renderNoWords() {
+    this.stopFuse();
+    this.showTopFuse(false);
     const stage = this.stage;
     if (!stage) return;
-    stage.querySelectorAll('.games-room-letter[data-slot]').forEach(b =>
-      b.addEventListener('click', () => this.pick(Number(b.getAttribute('data-slot')))));
-    const undo = document.getElementById('bomb-undo'); if (undo) undo.addEventListener('click', () => this.undo());
-    const clear = document.getElementById('bomb-clear'); if (clear) clear.addEventListener('click', () => this.clear());
+    const hint = WordStore.useOnlyStudyList ? ' veya "Sadece Seçtiğim Kelimelerle Çalış" filtresini kapatın' : '';
+    stage.innerHTML = `
+      <div class="text-center p-6 max-w-md">
+        <div class="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 mx-auto flex items-center justify-center mb-4">
+          <i data-lucide="alert-triangle" class="w-8 h-8"></i>
+        </div>
+        <h3 class="text-xl font-bold font-display text-white mb-2">Yeterli Kelime Yok</h3>
+        <p class="text-slate-300 text-sm mb-4">Kelime Bombası için en az 4 farklı anlamlı kelime gerekir. Lütfen kelime ekleyin${hint}.</p>
+        <button onclick="closeGame()" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700 transition">Menüye Dön</button>
+      </div>`;
+    if (window.lucide) window.lucide.createIcons();
   }
 
-  onPhysicalKey(e) {
-    if (!this.target || this.finished || this.lives <= 0) return;
-    if (e.key === 'Backspace') { e.preventDefault(); this.undo(); }
-    else if (/^[a-zA-Z]$/.test(e.key)) { e.preventDefault(); this.pickLetter(e.key.toUpperCase()); }
-  }
+  // ---------------------------------------------------------------------------
+  // Cevap & akış
+  // ---------------------------------------------------------------------------
+  answer(idx) {
+    if (this.locked || this.finished || !this.question) return;
+    const opt = this.question.options[idx];
+    if (!opt) return;
+    this.locked = true;
+    this.stopFuse();
 
-  pick(slot) {
-    if (this.finished || this.isExploding) return;
-    const item = this.scrambled[slot];
-    if (!item || item.used) return;
-    item.used = true;
-    this.selected.push({ ch: item.ch, srcIdx: slot });
-    AudioService.playSfx('click');
-    if (this.selected.length === this.letters.length) { this.check(); return; }
-    this.render();
-  }
+    const buttons = this.stage ? this.stage.querySelectorAll('.bomb-option') : [];
+    // Doğru şıkkı her durumda yeşil vurgula
+    buttons.forEach((btn, i) => {
+      btn.disabled = true;
+      if (this.question.options[i].correct) btn.classList.add('bomb-option-correct');
+    });
 
-  pickLetter(letter) {
-    const idx = this.scrambled.findIndex(s => !s.used && s.ch === letter);
-    if (idx > -1) this.pick(idx);
-  }
-
-  undo() {
-    if (this.finished || this.isExploding || this.selected.length === 0) return;
-    const last = this.selected.pop();
-    if (last && last.srcIdx != null) this.scrambled[last.srcIdx].used = false;
-    this.render();
-  }
-
-  clear() {
-    if (this.finished || this.isExploding) return;
-    this.selected.forEach(s => { if (s.srcIdx != null) this.scrambled[s.srcIdx].used = false; });
-    this.selected = [];
-    this.render();
-  }
-
-  check() {
-    const typed = this.selected.map(s => s.ch).join('');
-    const answer = this.letters.join('');
-    if (typed === answer) {
-      this.finished = true;
-      this.stopFuse();
+    if (opt.correct) {
+      this.correctCount++;
       this.combo++;
       this.maxCombo = Math.max(this.maxCombo, this.combo);
-      this.score += 20 + Math.round(this.remaining * 2) + (Math.min(5, this.combo) * 5);
-      this.correctCount++;
-      WordStore.recordSuccess(this.target.id);
-      AudioService.playSfx('win');
-      showToast('BOMBA İMHA EDİLDİ! 💥', 'success');
-
-      // Yeşil onay efekti
-      const slots = document.getElementById('bomb-slots');
-      if (slots) {
-        slots.classList.add('games-room-flash-green');
-        slots.querySelectorAll('.games-room-slot').forEach(s => s.classList.add('games-room-slot-ok'));
-      }
-      setTimeout(() => this.newBomb(), 900);
+      const timeBonus = Math.round(Math.max(0, this.remaining) * 2);
+      this.score += 10 + timeBonus + (Math.min(5, this.combo) * 5);
+      WordStore.recordSuccess(this.question.word.id);
+      AudioService.playSfx('correct');
+      updateGameScore(this.score);
+      setTimeout(() => this.nextQuestion(), 700);
     } else {
-      this.combo = 0;
-      this.wrongCount++;
-      AudioService.playSfx('wrong');
-      showToast('Yanlış sıralama!', 'warning');
-      setTimeout(() => { if (!this.finished && !this.isExploding) this.clear(); }, 500);
+      if (buttons[idx]) buttons[idx].classList.add('bomb-option-wrong');
+      this.registerMiss();
+      setTimeout(() => { if (!this.finished) this.nextQuestion(); }, 1100);
     }
   }
 
+  registerMiss() {
+    this.combo = 0;
+    this.wrongCount++;
+    this.lives = Math.max(0, this.lives - 1);
+    const livesDisplay = document.getElementById('game-lives-display');
+    if (livesDisplay) livesDisplay.textContent = this.lives;
+    // Yanlış yapılan kelimeyi "Zorlu Kelimeler" listesine kaydet
+    if (this.question && this.question.word) {
+      WordStore.recordMistake(this.question.word.id, 'word-bomb');
+    }
+    AudioService.playSfx('wrong');
+    const wrap = document.getElementById('game-fuse-container');
+    if (wrap) { wrap.classList.add('games-room-shake'); setTimeout(() => wrap.classList.remove('games-room-shake'), 500); }
+
+    if (this.lives <= 0) {
+      this.finished = true;
+      this.stopFuse();
+      setTimeout(() => this.renderGameOver(), 1100);
+    }
+  }
+
+  onPhysicalKey(e) {
+    if (this.locked || this.finished) return;
+    const map = { '1': 0, '2': 1, '3': 2, '4': 3, a: 0, b: 1, c: 2, d: 3 };
+    const idx = map[e.key.toLowerCase()];
+    if (idx != null) { e.preventDefault(); this.answer(idx); }
+  }
+
+  speak() {
+    if (this.question && this.question.word) AudioService.speak(this.question.word.en);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Fitil (süre çubuğu)
+  // ---------------------------------------------------------------------------
   startFuse() {
     this.stopFuse();
+    const tickMs = 100;
+    const step = this.duration * (tickMs / 1000); // her tick'te azalan saniye
     this.fuseTimer = setInterval(() => {
-      if (this.finished || this.isExploding || this.lives <= 0) return;
-      this.remaining -= 0.2;
+      if (this.locked || this.finished || this.lives <= 0) return;
+      this.remaining -= step;
       const pct = Math.max(0, (this.remaining / this.duration) * 100);
-      const b = document.getElementById('fuse-bar');
-      if (b) b.style.width = `${pct}%`;
-      const lbl = document.getElementById('bomb-time-label');
-      if (lbl) lbl.textContent = Math.ceil(Math.max(0, this.remaining));
-      if (this.remaining <= 0) { this.explode(); }
-    }, 200);
+      const bar = document.getElementById('game-fuse-bar');
+      if (bar) bar.style.width = `${pct}%`;
+      const lbl = document.getElementById('game-fuse-label');
+      if (lbl) lbl.textContent = String(Math.ceil(Math.max(0, this.remaining)));
+      if (this.remaining <= 0) this.timeout();
+    }, tickMs);
   }
 
   stopFuse() {
     if (this.fuseTimer) { clearInterval(this.fuseTimer); this.fuseTimer = null; }
   }
 
-  // Süre bitti → patlama efekti, can azalır, doğru kelime gösterilir
-  explode() {
-    if (this.isExploding) return;
-    this.isExploding = true;
+  timeout() {
+    if (this.locked || this.finished) return;
+    this.locked = true;
     this.stopFuse();
-    this.lives--;
-    this.combo = 0;
-    this.wrongCount++;
-    WordStore.recordMistake(this.target.id, 'word-bomb');
-    AudioService.playSfx('wrong');
-    const livesDisplay = document.getElementById('game-lives-display');
-    if (livesDisplay) livesDisplay.textContent = this.lives;
-
-    const stage = this.stage;
-    if (stage) {
-      stage.classList.add('games-room-shake');
-      setTimeout(() => stage.classList.remove('games-room-shake'), 500);
-      stage.innerHTML = `
-        <div class="w-full max-w-md flex flex-col items-center text-center animate-pop">
-          <div class="w-20 h-20 rounded-full bg-rose-600 flex items-center justify-center text-white mb-4 shadow-2xl shadow-rose-600/60 games-room-bomb-pulse">
-            <i data-lucide="flame" class="w-10 h-10"></i>
-          </div>
-          <h3 class="text-2xl font-extrabold font-display text-rose-400 mb-1">💥 BOMBA PATLADI!</h3>
-          <p class="text-slate-300 text-sm mb-1">Doğru kelime:</p>
-          <p class="text-3xl font-extrabold font-display text-white mb-1">${escapeHtml(this.target.en)}</p>
-          <p class="text-slate-400 text-sm mb-4">${escapeHtml(this.target.tr)}</p>
-          <p class="text-xs text-amber-300 mb-5">Bu kelime "Zorlu Kelimeler" listenize eklendi. Kalan can: <strong class="text-white">${this.lives}</strong></p>
-          <button id="bomb-continue-btn" class="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-sm transition">
-            ${this.lives > 0 ? 'Sıradaki Kelime' : 'Sonucu Gör'} &rarr;
-          </button>
-        </div>`;
-      if (window.lucide) window.lucide.createIcons();
-      const cont = document.getElementById('bomb-continue-btn');
-      if (cont) cont.addEventListener('click', () => { AudioService.playSfx('click'); this.newBomb(); });
-    }
+    const buttons = this.stage ? this.stage.querySelectorAll('.bomb-option') : [];
+    buttons.forEach((btn, i) => {
+      btn.disabled = true;
+      if (this.question && this.question.options[i].correct) btn.classList.add('bomb-option-correct');
+    });
+    this.registerMiss();
+    setTimeout(() => { if (!this.finished) this.nextQuestion(); }, 1100);
   }
 
+  // ---------------------------------------------------------------------------
+  // Oyun sonu
+  // ---------------------------------------------------------------------------
   renderGameOver() {
+    this.finished = true;
     this.stopFuse();
-    const stage = document.getElementById('game-stage');
+    this.showTopFuse(false);
+    const stage = this.stage;
     if (!stage) return;
+
     const total = this.correctCount + this.wrongCount;
     const accuracy = total > 0 ? Math.round((this.correctCount / total) * 100) : 0;
-    const best = Number(localStorage.getItem('wordbomb_best_v1') || 0);
+    let best = 0;
+    try { best = Number(localStorage.getItem('wordbomb_best_v1') || 0); } catch (e) {}
     const isNewBest = this.score > best;
     if (isNewBest) { try { localStorage.setItem('wordbomb_best_v1', String(this.score)); } catch (e) {} }
 
@@ -3395,11 +3401,11 @@ class WordBombGame {
             ${isNewBest ? '<span class="text-[10px] font-bold text-amber-400">YENİ REKOR!</span>' : ''}
           </div>
           <div class="p-3 rounded-xl bg-slate-800/80 border border-slate-700">
-            <span class="text-[11px] uppercase text-slate-400 font-semibold block">İmha Edilen</span>
+            <span class="text-[11px] uppercase text-slate-400 font-semibold block">Doğru</span>
             <span class="text-2xl font-mono font-bold text-emerald-400">${this.correctCount}</span>
           </div>
           <div class="p-3 rounded-xl bg-slate-800/80 border border-slate-700">
-            <span class="text-[11px] uppercase text-slate-400 font-semibold block">Patlama</span>
+            <span class="text-[11px] uppercase text-slate-400 font-semibold block">Yanlış</span>
             <span class="text-2xl font-mono font-bold text-rose-400">${this.wrongCount}</span>
           </div>
           <div class="p-3 rounded-xl bg-slate-800/80 border border-slate-700">
@@ -3407,7 +3413,7 @@ class WordBombGame {
             <span class="text-2xl font-mono font-bold text-amber-400">x${this.maxCombo}</span>
           </div>
         </div>
-        <p class="text-sm text-slate-300 mb-6">Başarı oranı: <span class="text-white font-bold">%${accuracy}</span></p>
+        <p class="text-sm text-slate-300 mb-6">Başarı oranı: <span class="text-white font-bold">%${accuracy}</span>${isNewBest ? '' : ` · Rekor: <span class="text-amber-300 font-bold">${best}</span>`}</p>
 
         <div class="flex items-center justify-center gap-3 flex-wrap">
           <button onclick="launchGame('word-bomb')" class="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-sm transition flex items-center gap-1.5">
@@ -3419,14 +3425,21 @@ class WordBombGame {
     if (window.lucide) window.lucide.createIcons();
   }
 
+  showTopFuse(visible) {
+    const el = document.getElementById('game-fuse-container');
+    if (el) el.classList.toggle('hidden', !visible);
+  }
+
   get stage() { return document.getElementById('game-stage'); }
 
   destroy() {
     this.stopFuse();
+    this.finished = true;
     if (this.keyboardHandler) {
       window.removeEventListener('keydown', this.keyboardHandler);
       this.keyboardHandler = null;
     }
+    this.showTopFuse(false);
     const livesContainer = document.getElementById('game-lives-container');
     if (livesContainer) livesContainer.classList.add('hidden');
   }
